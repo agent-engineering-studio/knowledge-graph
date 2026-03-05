@@ -1,16 +1,16 @@
 # Knowledge Graph Lab
 
-Sistema completo di Knowledge Graph con pipeline di ingestion, vector store, graph database e pipeline RAG. Progetto companion del libro *"Knowledge Graph: dalla Teoria alla Pratica"* (Hevolus Srl, 2026).
+Sistema completo di Knowledge Graph con pipeline di ingestion, vector store, graph database e pipeline RAG. Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Giuseppe Zileni, 2026).
 
 ## Stack tecnologico
 
-| Componente | Tecnologia |
-|---|---|
-| Graph Database | **Neo4j 5.18** (Cypher) |
-| Vector Store | **Redis for AI** (RedisSearch + RedisJSON) |
-| Inference locale | **Ollama** (Llama 3 + nomic-embed-text) |
-| REST API | **FastAPI** + uvicorn |
-| Modelli dati | **Pydantic v2** + pydantic-settings |
+| Componente       | Tecnologia                                 |
+| ---------------- | ------------------------------------------ |
+| Graph Database   | **Neo4j 5.18** (Cypher)                    |
+| Vector Store     | **Redis for AI** (RedisSearch + RedisJSON) |
+| Inference locale | **Ollama** (Llama 3 + nomic-embed-text)    |
+| REST API         | **FastAPI** + uvicorn                      |
+| Modelli dati     | **Pydantic v2** + pydantic-settings        |
 
 ## Quick start
 
@@ -60,13 +60,13 @@ knowledge-graph-lab/
 
 ## API Endpoints
 
-| Metodo | Endpoint | Descrizione |
-|---|---|---|
-| `POST` | `/ingest` | Carica e indicizza un documento |
-| `POST` | `/query` | Query RAG (risposta JSON) |
-| `POST` | `/query/stream` | Query RAG con streaming SSE |
-| `GET` | `/health` | Health check (Neo4j + Redis + Ollama) |
-| `DELETE` | `/documents/{id}` | Cancella un documento |
+| Metodo   | Endpoint          | Descrizione                           |
+| -------- | ----------------- | ------------------------------------- |
+| `POST`   | `/ingest`         | Carica e indicizza un documento       |
+| `POST`   | `/query`          | Query RAG (risposta JSON)             |
+| `POST`   | `/query/stream`   | Query RAG con streaming SSE           |
+| `GET`    | `/health`         | Health check (Neo4j + Redis + Ollama) |
+| `DELETE` | `/documents/{id}` | Cancella un documento                 |
 
 ## Variabili d'ambiente
 

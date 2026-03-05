@@ -5,7 +5,7 @@
 </p>
 
 Sistema completo di **Knowledge Graph** con pipeline di ingestion, vector store, graph database, pipeline RAG e interfaccia web.
-Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Hevolus Srl, 2026).
+Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Giuseppe Zileni, 2026).
 
 ---
 
