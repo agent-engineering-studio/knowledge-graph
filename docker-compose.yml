@@ -43,6 +43,27 @@ services:
       timeout: 10s
       retries: 3
 
+  # ── MCP Server ──────────────────────────────────────────────────────
+  mcp:
+    build:
+      context: ./knowledge-graph-mcp
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - KG_API_URL=http://api:8000
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8080
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/sse"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # ── Neo4j (Graph DB) ────────────────────────────────────────────────
   neo4j:
     image: neo4j:5.18

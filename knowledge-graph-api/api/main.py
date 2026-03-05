@@ -6,7 +6,7 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import ingest, query
+from api.routes import documents, graph, ingest, query
 from api.schemas import HealthResponse
 from config.settings import settings
 from storage.neo4j_graph import Neo4jGraph
@@ -31,6 +31,8 @@ app.add_middleware(
 # Routes
 app.include_router(ingest.router)
 app.include_router(query.router)
+app.include_router(graph.router)
+app.include_router(documents.router)
 
 
 # ── Lifecycle events ─────────────────────────────────────────────────

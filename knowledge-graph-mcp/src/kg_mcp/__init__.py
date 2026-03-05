@@ -1,0 +1,1 @@
+"""Knowledge Graph MCP Server."""

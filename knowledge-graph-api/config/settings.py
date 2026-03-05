@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 128
     MAX_RETRIES: int = 5
     LOG_LEVEL: str = "INFO"
+    DEBUG: bool = False
 
     model_config = {
         "env_file": ".env",

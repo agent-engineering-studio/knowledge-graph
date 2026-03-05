@@ -25,3 +25,15 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
+
+  mcp:
+    build:
+      context: ./knowledge-graph-mcp
+      dockerfile: Dockerfile
+    volumes:
+      - ./knowledge-graph-mcp/src:/app/src
+    environment:
+      - KG_API_URL=http://api:8000
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8080
