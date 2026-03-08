@@ -1,42 +1,52 @@
 # Knowledge Graph Lab
 
-<p align="center">
-  <img src="assets/banner.svg" alt="Knowledge Graph Lab" width="100%"/>
-</p>
+![Knowledge Graph Lab](assets/banner.svg)
 
-Sistema completo di **Knowledge Graph** con pipeline di ingestion, vector store, graph database, pipeline RAG, interfaccia web e **sistema multi-agent** con orchestrazione LangGraph.
-Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni, 2026).
+Complete **Knowledge Graph** system with document ingestion pipeline, vector store, graph database, hybrid RAG, web interface and a **multi-agent** orchestration layer built on LangGraph.
+Companion project for the book _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni, 2026).
 
 ---
 
-## Indice
+## Table of contents
 
-- [Architettura](#architettura)
-- [Stack tecnologico](#stack-tecnologico)
-- [Requisiti di sistema](#requisiti-di-sistema)
+- [Modules](#modules)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [System requirements](#system-requirements)
 - [Quick start](#quick-start)
-- [Avvio in sviluppo (senza Docker)](#avvio-in-sviluppo-senza-docker)
-- [Avvio con Docker](#avvio-con-docker)
-- [Struttura del repository](#struttura-del-repository)
+- [Local development (without Docker)](#local-development-without-docker)
+- [Running with Docker](#running-with-docker)
+- [Repository structure](#repository-structure)
 - [API Reference](#api-reference)
 - [Agent API Reference](#agent-api-reference)
-- [Sistema Multi-Agent](#sistema-multi-agent)
+- [Multi-Agent system](#multi-agent-system)
 - [UI (Frontend)](#ui-frontend)
-- [Variabili d'ambiente](#variabili-dambiente)
-- [Debug con VS Code](#debug-con-vs-code)
-- [Test e linting](#test-e-linting)
-- [Pipeline di ingestion](#pipeline-di-ingestion)
-- [Pipeline RAG (query)](#pipeline-rag-query)
-- [Modelli dati](#modelli-dati)
-- [Riferimenti scientifici](#riferimenti-scientifici)
+- [Environment variables](#environment-variables)
+- [Debugging with VS Code](#debugging-with-vs-code)
+- [Testing and linting](#testing-and-linting)
+- [Ingestion pipeline](#ingestion-pipeline)
+- [RAG pipeline (query)](#rag-pipeline-query)
+- [Data models](#data-models)
+- [Scientific references](#scientific-references)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
-## Architettura
+## Modules
 
-```
-  Cliente / LLM Host (Claude Desktop, VS Code, custom app)
+| Module | Description | README |
+| --- | --- | --- |
+| [knowledge-graph-api](knowledge-graph-api/) | FastAPI backend — ingestion, RAG, graph | [README](knowledge-graph-api/README.md) |
+| [knowledge-graph-ui](knowledge-graph-ui/) | Next.js 15 web frontend | [README](knowledge-graph-ui/README.md) |
+| [knowledge-graph-mcp](knowledge-graph-mcp/) | MCP server — exposes API as LLM tools | [README](knowledge-graph-mcp/README.md) |
+| [knowledge-graph-agents](knowledge-graph-agents/) | Multi-agent orchestration (LangGraph) | [README](knowledge-graph-agents/README.md) |
+
+---
+
+## Architecture
+
+```text
+  Client / LLM Host (Claude Desktop, VS Code, custom app)
          |                            |
          | MCP Protocol               | HTTP REST
          v                            v
@@ -73,69 +83,68 @@ Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (
              +------------------+
 ```
 
-Il flusso dati segue tre percorsi principali:
+Data flows through three main paths:
 
-1. **Ingestion**: documento → chunking → embedding (Ollama) → dedup (SHA-256) → entity/relation extraction (LLM) → storage in Redis (vettori) + Neo4j (grafo)
-2. **Query RAG**: domanda → intent classification → vector search (Redis) → graph traversal (Neo4j) → context assembly → LLM generation (Ollama) → risposta
-3. **Multi-Agent**: richiesta → Orchestrator (LangGraph) → agente specializzato → tool HTTP verso API → risposta strutturata
-
----
-
-## Stack tecnologico
-
-| Componente              | Tecnologia                               | Versione    |
-| ----------------------- | ---------------------------------------- | ----------- |
-| **Graph Database**      | Neo4j (Cypher + APOC)                    | 5.18        |
-| **Vector Store**        | Redis for AI (RedisSearch + RedisJSON)   | latest      |
-| **LLM Inference**       | Ollama (locale, no API key)              | latest      |
-| **LLM Model**           | Llama 3                                  | latest      |
-| **Embedding Model**     | nomic-embed-text (768 dim)               | latest      |
-| **REST API**            | FastAPI + uvicorn                        | 0.115+      |
-| **Modelli dati**        | Pydantic v2 + pydantic-settings          | 2.7+        |
-| **Multi-Agent**         | LangGraph (StateGraph + routing)         | 0.2+        |
-| **Frontend**            | Next.js + React + Tailwind CSS           | 15 / 19 / 4 |
-| **Graph Visualization** | react-force-graph-2d                     | 1.26+       |
-| **Logging**             | structlog (JSON in prod, console in dev) | 24.1+       |
-| **Testing**             | pytest + pytest-asyncio + pytest-mock    | 8.2+        |
-| **Linting**             | ruff (API), ESLint + next lint (UI)      | 0.4+        |
-| **Containerizzazione**  | Docker + Docker Compose                  | 24+ / v2    |
+1. **Ingestion**: document → chunking → embedding (Ollama) → dedup (SHA-256) → entity/relation extraction (LLM) → storage in Redis (vectors) + Neo4j (graph)
+2. **RAG Query**: question → intent classification → vector search (Redis) → graph traversal (Neo4j) → context assembly → LLM generation (Ollama) → answer
+3. **Multi-Agent**: request → Orchestrator (LangGraph) → specialised agent → HTTP tools to API → structured response
 
 ---
 
-## Requisiti di sistema
+## Tech stack
 
-- **Docker 24+** e Docker Compose v2
-- **8 GB RAM** raccomandati (Ollama + Neo4j + Redis)
-- **Python 3.11+** (solo per sviluppo locale API senza Docker)
-- **Node.js 22+** (solo per sviluppo locale UI senza Docker)
-- GPU NVIDIA opzionale (per accelerare Ollama)
+| Component | Technology | Version |
+| --- | --- | --- |
+| **Graph Database** | Neo4j (Cypher + APOC) | 5.18 |
+| **Vector Store** | Redis for AI (RedisSearch + RedisJSON) | latest |
+| **LLM Inference** | Ollama (local, no API key) | latest |
+| **LLM Model** | Llama 3 | latest |
+| **Embedding Model** | nomic-embed-text (768 dim) | latest |
+| **REST API** | FastAPI + uvicorn | 0.115+ |
+| **Data Models** | Pydantic v2 + pydantic-settings | 2.7+ |
+| **Multi-Agent** | LangGraph (StateGraph + routing) | 0.2+ |
+| **Frontend** | Next.js + React + Tailwind CSS | 15 / 19 / 4 |
+| **Graph Visualisation** | react-force-graph-2d | 1.26+ |
+| **Logging** | structlog (JSON in prod, console in dev) | 24.1+ |
+| **Testing** | pytest + pytest-asyncio + pytest-mock | 8.2+ |
+| **Linting** | ruff (API/Agents), ESLint + next lint (UI) | 0.4+ |
+| **Containerisation** | Docker + Docker Compose | 24+ / v2 |
+
+---
+
+## System requirements
+
+- **Docker 24+** and Docker Compose v2
+- **8 GB RAM** recommended (Ollama + Neo4j + Redis)
+- **Python 3.11+** (only for local API development without Docker)
+- **Node.js 22+** (only for local UI development without Docker)
+- NVIDIA GPU optional (to accelerate Ollama)
 
 ---
 
 ## Quick start
 
-Il modo piu rapido per avviare tutto:
+The fastest way to get everything running:
 
 ```bash
-# 1. Clona e posizionati nella root
+# 1. Clone and move into the root
 git clone <repo-url>
 cd knowledge-graph
 
-# 2. Configura le variabili d'ambiente
+# 2. Configure environment variables
 cp .env.example .env
-# Modifica NEO4J_PASSWORD e altri valori in .env
+# Edit NEO4J_PASSWORD and other values in .env
 
-# 3. Avvia tutti i servizi
-docker compose up --build -d
+# 3. Start all services (production stack)
+make up-prod
 
-# 4. Scarica i modelli Ollama (solo la prima volta)
-docker compose exec ollama ollama pull llama3
-docker compose exec ollama ollama pull nomic-embed-text
+# 4. Download Ollama models (first time only)
+make pull-models
 
-# 5. (Opzionale) Popola con dati di esempio
+# 5. (Optional) Seed with sample data
 cd knowledge-graph-api && make seed
 
-# 6. Apri il browser
+# 6. Open in the browser
 #    UI:            http://localhost:3000
 #    API Swagger:   http://localhost:8000/docs
 #    Agent API:     http://localhost:8002/docs
@@ -145,28 +154,28 @@ cd knowledge-graph-api && make seed
 
 ---
 
-## Avvio in sviluppo (senza Docker)
+## Local development (without Docker)
 
-Per sviluppare con hot-reload su entrambi i progetti, avvia solo l'infrastruttura con Docker e i server di sviluppo nativamente.
+Run only the infrastructure in Docker and the application servers natively for a hot-reload development experience.
 
-### 1. Infrastruttura (Neo4j + Redis + Ollama)
+### 1. Infrastructure (Neo4j + Redis + Ollama + RedisInsight)
 
 ```bash
 cd knowledge-graph
-docker compose up neo4j redis ollama -d
+make up-dev
+# or: docker compose --profile dev up -d
 ```
 
-Attendi che i servizi siano healthy:
+Wait for services to become healthy:
 
 ```bash
 docker compose ps
 ```
 
-### 2. Modelli Ollama (solo la prima volta)
+### 2. Ollama models (first time only)
 
 ```bash
-docker compose exec ollama ollama pull llama3
-docker compose exec ollama ollama pull nomic-embed-text
+make pull-models
 ```
 
 ### 3. API (FastAPI)
@@ -174,48 +183,35 @@ docker compose exec ollama ollama pull nomic-embed-text
 ```bash
 cd knowledge-graph-api
 
-# Crea e attiva virtualenv
 python -m venv venv
-source venv/bin/activate        # Linux/macOS
+source venv/bin/activate        # Linux / macOS
 # venv\Scripts\activate         # Windows
 
-# Installa dipendenze
 pip install -r requirements.txt
-
-# Avvia con hot-reload
 uvicorn api.main:app --reload --port 8000
 ```
 
-L'API sara disponibile su `http://localhost:8000`. La documentazione Swagger interattiva su `http://localhost:8000/docs`.
+API available at `http://localhost:8000`. Interactive Swagger docs at `http://localhost:8000/docs`.
 
 ### 4. Agents (Multi-Agent API)
 
 ```bash
 cd knowledge-graph-agents
 
-# Crea e attiva virtualenv
 python -m venv venv
-source venv/bin/activate        # Linux/macOS
-# venv\Scripts\activate         # Windows
+source venv/bin/activate
 
-# Installa dipendenze
 pip install -r requirements.txt
-
-# Configura env
-cp .env.example .env
-# Verifica KG_API_URL=http://localhost:8000
-
-# Avvia con hot-reload
 uvicorn api.agent_api:app --reload --port 8001
 ```
 
-L'Agent API sara disponibile su `http://localhost:8001`. Swagger su `http://localhost:8001/docs`.
+Agent API available at `http://localhost:8001`. Swagger at `http://localhost:8001/docs`.
 
 ```bash
-# Esempio di chiamata
+# Example call
 curl -X POST http://localhost:8001/agents/run \
   -H "Content-Type: application/json" \
-  -d '{"request": "cosa sai su Neo4j?", "thread_id": "default"}'
+  -d '{"request": "What do you know about Neo4j?", "thread_id": "default"}'
 ```
 
 ### 5. UI (Next.js)
@@ -223,213 +219,176 @@ curl -X POST http://localhost:8001/agents/run \
 ```bash
 cd knowledge-graph-ui
 
-# Configura env
 cp .env.local.example .env.local
-# Verifica che NEXT_PUBLIC_API_URL=http://localhost:8000
+# Verify NEXT_PUBLIC_API_URL=http://localhost:8000
 
-# Installa dipendenze
 npm install
-
-# Avvia dev server
 npm run dev
 ```
 
-La UI sara disponibile su `http://localhost:3000`.
+UI available at `http://localhost:3000`.
 
 ---
 
-## Avvio con Docker
+## Running with Docker
 
-### Produzione
+### Docker Compose profiles
+
+The stack uses Docker Compose profiles to separate environments:
+
+| Profile | Services started | Use case |
+| --- | --- | --- |
+| `dev` | neo4j, redis, ollama, redisinsight | Local development — run apps outside Docker |
+| `prod` | neo4j, redis, ollama, api, ui, mcp, agents | Full production stack |
+
+### Makefile targets
+
+```bash
+make up-dev     # infrastructure + RedisInsight (profile dev)
+make up-prod    # full production stack (profile prod)
+make down       # stop all services
+make pull-models  # download llama3 + nomic-embed-text
+```
+
+### Production
 
 ```bash
 cp .env.example .env
-# Configura .env con password reali
+# Configure .env with real passwords
 
-docker compose up --build -d
+make up-prod
 ```
 
-Servizi esposti:
+Services exposed:
 
-| Servizio      | URL                         | Descrizione                      |
-| ------------- | --------------------------- | -------------------------------- |
-| UI            | http://localhost:3000       | Frontend Next.js                 |
-| API           | http://localhost:8000       | REST API FastAPI                 |
-| API Docs      | http://localhost:8000/docs  | Swagger UI (API)                 |
-| Agent API     | http://localhost:8002       | Multi-Agent Orchestration API    |
-| Agent Docs    | http://localhost:8002/docs  | Swagger UI (Agent API)           |
-| MCP Server    | http://localhost:8080       | MCP tool layer (SSE transport)   |
-| Neo4j Browser | http://localhost:7474       | Interfaccia web Neo4j            |
-| RedisInsight  | http://localhost:8001       | Interfaccia web Redis            |
-| Ollama        | http://localhost:11434      | API Ollama                       |
+| Service | URL | Description |
+| --- | --- | --- |
+| UI | <http://localhost:3000> | Next.js frontend |
+| API | <http://localhost:8000> | FastAPI REST API |
+| API Docs | <http://localhost:8000/docs> | Swagger UI (API) |
+| Agent API | <http://localhost:8002> | Multi-Agent Orchestration API |
+| Agent Docs | <http://localhost:8002/docs> | Swagger UI (Agent API) |
+| MCP Server | <http://localhost:8080> | MCP tool layer (SSE transport) |
+| Neo4j Browser | <http://localhost:7474> | Neo4j web interface |
+| RedisInsight | <http://localhost:8001> | Redis web interface (built-in) |
+| Ollama | <http://localhost:11434> | Ollama API |
 
-### Sviluppo (con hot-reload)
+### Development (infra only)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+make up-dev
 ```
 
-Questa configurazione:
+This starts only Neo4j, Redis, Ollama and a standalone RedisInsight on port 5540.
+Run API, UI, Agents and MCP locally with hot-reload (see [Local development](#local-development-without-docker)).
 
-- Monta i sorgenti come volumi (modifiche applicate automaticamente)
-- Abilita `--reload` su uvicorn per l'API
-- Esegue `npm run dev` per la UI
-- Imposta `DEBUG=true` e `LOG_LEVEL=DEBUG`
+Additional services when using `--profile dev`:
 
-### Comandi utili
+| Service | URL | Description |
+| --- | --- | --- |
+| RedisInsight | <http://localhost:5540> | Standalone Redis UI (profile dev) |
+| Neo4j Browser | <http://localhost:7474> | Built into neo4j container |
+
+### Useful Docker commands
 
 ```bash
-# Stato dei servizi
+# Service status
 docker compose ps
 
-# Log di un servizio specifico
+# Follow logs of a specific service
 docker compose logs -f api
 docker compose logs -f ui
 
-# Ferma tutto
-docker compose down
+# Stop all services
+make down
 
-# Ferma e rimuovi volumi (ATTENZIONE: cancella dati Neo4j/Redis)
+# Stop and remove volumes (WARNING: deletes all Neo4j/Redis data)
 docker compose down -v
 
-# Rebuild di un singolo servizio
+# Rebuild a single service
 docker compose up --build api -d
 ```
 
-### GPU NVIDIA (opzionale)
+### NVIDIA GPU (optional)
 
-Per abilitare l'accelerazione GPU su Ollama, decommenta la sezione `deploy` nel servizio `ollama` di `docker-compose.yml`:
-
-```yaml
-ollama:
-  # ...
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: all
-            capabilities: [gpu]
-```
+GPU acceleration for Ollama is configured in `docker-compose.yml` under the `deploy` section of the `ollama` service — it is enabled by default and requires the NVIDIA Container Toolkit.
 
 ---
 
-## Struttura del repository
+## Repository structure
 
-```
+```text
 knowledge-graph/
-├── .vscode/                        # Configurazione VS Code (debug, tasks, settings)
+├── .vscode/                        # VS Code configuration (debug, tasks, settings)
 │   ├── launch.json                 # Debug configurations
 │   ├── tasks.json                  # Build/run tasks
 │   └── settings.json               # Editor settings
-├── docker-compose.yml              # Stack completo (prod)
-├── docker-compose.dev.yml          # Override per sviluppo (hot-reload)
-├── .env.example                    # Template variabili d'ambiente
+├── docker-compose.yml              # Full stack (profiles: dev, prod)
+├── Makefile                        # Shorthand commands
+├── .env.example                    # Environment variable template
 │
 ├── knowledge-graph-api/            # Backend API (Python / FastAPI)
 │   ├── api/                        # FastAPI app, routes, schemas
-│   │   ├── main.py                 # Entrypoint applicazione
+│   │   ├── main.py                 # Application entry point
 │   │   ├── schemas.py              # Pydantic request/response models
 │   │   └── routes/
 │   │       ├── ingest.py           # POST /ingest
 │   │       └── query.py            # POST /query, POST /query/stream
 │   ├── config/
-│   │   └── settings.py             # Configurazione centralizzata (pydantic-settings)
-│   ├── models/                     # Modelli di dominio
+│   │   └── settings.py             # Centralised configuration (pydantic-settings)
+│   ├── models/                     # Domain models
 │   │   ├── base.py                 # VectorDocument
 │   │   ├── graph_node.py           # GraphNode (KGNode)
 │   │   └── relation.py             # Relation
-│   ├── pipeline/                   # Pipeline di ingestion
-│   │   ├── chunker.py              # Text chunking con overlap
-│   │   ├── content_extractor.py    # PDF, DOCX, TXT extraction
-│   │   ├── embedder.py             # Embedding via Ollama
-│   │   ├── extractor.py            # Entity/relation extraction via LLM
-│   │   ├── ingest.py               # Orchestratore pipeline
-│   │   └── router.py               # MIME type routing
-│   ├── query/                      # Pipeline di query
-│   │   ├── vector_search.py        # KNN search in Redis
-│   │   ├── graph_traversal.py      # Neighbor traversal in Neo4j
-│   │   └── rag_pipeline.py         # Orchestratore RAG completo
-│   ├── storage/                    # Backend di persistenza
-│   │   ├── neo4j_graph.py          # Async Neo4j driver
-│   │   └── redis_vector.py         # RedisSearch vector store
-│   ├── utils/
-│   │   ├── logger.py               # structlog configuration
-│   │   └── helpers.py              # SHA-256 hash utility
-│   ├── tests/                      # Test suite
-│   ├── scripts/                    # Seed e demo scripts
-│   ├── infra/docker/Dockerfile     # Dockerfile API
-│   ├── requirements.txt
-│   └── Makefile
+│   ├── pipeline/                   # Ingestion pipeline
+│   ├── query/                      # Query pipeline
+│   ├── storage/                    # Persistence backends
+│   ├── infra/docker/Dockerfile     # API Dockerfile
+│   └── requirements.txt
 │
-├── knowledge-graph-agents/         # 🆕 Multi-Agent Orchestration (Python / LangGraph)
-│   ├── agents/                     # Agenti specializzati
-│   │   ├── orchestrator.py         # Router + Planner (classifica intent, costruisce piano)
-│   │   ├── ingestion.py            # Ingestion Agent (ingest + health check)
-│   │   ├── analyst.py              # Analyst Agent (vector / graph / hybrid)
-│   │   ├── validator.py            # Validator Agent (KGQualityReport)
-│   │   ├── kgc.py                  # KGC Agent (Knowledge Graph Completion)
-│   │   ├── synthesis.py            # Synthesis Agent (report via Ollama)
-│   │   └── monitor.py              # Monitor Agent (health + quality alerts)
+├── knowledge-graph-agents/         # Multi-Agent Orchestration (Python / LangGraph)
+│   ├── agents/                     # Specialised agents
 │   ├── orchestration/              # LangGraph workflow
-│   │   ├── state.py                # AgentState + Intent + AgentStep (TypedDict)
-│   │   ├── router.py               # Intent classification (regex, 8 intent)
-│   │   ├── planner.py              # build_plan() per intent
-│   │   └── graph.py                # StateGraph con routing condizionale
-│   ├── tools/
-│   │   └── kg_tools.py             # Wrapper HTTP async verso knowledge-graph-api
-│   ├── memory/
-│   │   └── kg_memory.py            # AgentRunRecord + in-process store
-│   ├── api/
-│   │   └── agent_api.py            # FastAPI app porta 8001 (→ host 8002 in Docker)
-│   ├── tests/
-│   │   ├── conftest.py
-│   │   └── test_agents.py          # 8 test con mock httpx
+│   ├── tools/kg_tools.py           # Async HTTP wrappers for the API
+│   ├── memory/kg_memory.py         # AgentRunRecord + in-process store
+│   ├── api/agent_api.py            # FastAPI app port 8001 (host 8002 in Docker)
 │   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── pyproject.toml
-│   └── .env.example
+│   └── requirements.txt
+│
+├── knowledge-graph-mcp/            # MCP Server (Python / FastMCP)
+│   ├── src/kg_mcp/
+│   │   ├── server.py               # MCP server + tool definitions
+│   │   ├── api_client.py           # HTTP client to the API
+│   │   └── tools.py                # 8 tool implementations
+│   ├── Dockerfile
+│   └── pyproject.toml
 │
 └── knowledge-graph-ui/             # Frontend (Next.js / React)
     ├── src/
-    │   ├── app/
-    │   │   ├── layout.tsx          # Root layout con Navbar
-    │   │   ├── page.tsx            # Dashboard (health + quick links)
-    │   │   ├── query/page.tsx      # Pagina Search/Query
-    │   │   └── graph/page.tsx      # Pagina Graph View
-    │   ├── components/
-    │   │   ├── Navbar.tsx           # Barra di navigazione
-    │   │   ├── HealthStatus.tsx     # Indicatori salute servizi
-    │   │   ├── QueryForm.tsx        # Form di ricerca RAG
-    │   │   ├── QueryResults.tsx     # Visualizzazione risultati
-    │   │   └── GraphView.tsx        # Visualizzazione grafo interattiva
-    │   └── lib/
-    │       └── api-client.ts        # Client API tipizzato (typed fetch wrapper)
-    ├── Dockerfile                   # Multi-stage build (standalone)
-    ├── .env.local.example
-    ├── next.config.ts
-    ├── package.json
-    ├── tsconfig.json
-    └── postcss.config.mjs
+    │   ├── app/                    # Next.js App Router pages
+    │   ├── components/             # Reusable React components
+    │   └── lib/api-client.ts       # Typed fetch wrapper
+    ├── Dockerfile
+    └── package.json
 ```
 
 ---
 
 ## API Reference
 
-L'API espone una documentazione OpenAPI interattiva generata automaticamente da FastAPI:
+Interactive OpenAPI documentation generated automatically by FastAPI:
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+- **Swagger UI**: <http://localhost:8000/docs>
+- **ReDoc**: <http://localhost:8000/redoc>
+- **OpenAPI JSON**: <http://localhost:8000/openapi.json>
 
 ### Endpoints
 
-#### `GET /health` — Health Check
+#### `GET /health` — Health check
 
-Verifica la connettivita con Neo4j, Redis e Ollama.
+Checks connectivity with Neo4j, Redis and Ollama.
 
-**Risposta** (`HealthResponse`):
+**Response** (`HealthResponse`):
 
 ```json
 {
@@ -440,15 +399,15 @@ Verifica la connettivita con Neo4j, Redis e Ollama.
 }
 ```
 
-Il campo `status` e `"healthy"` se tutti i servizi sono raggiungibili, `"degraded"` altrimenti.
+`status` is `"healthy"` when all services are reachable, `"degraded"` otherwise.
 
 ---
 
-#### `POST /ingest` — Ingestion documento
+#### `POST /ingest` — Document ingestion
 
-Carica un documento, lo processa attraverso la pipeline completa (chunking, embedding, entity extraction) e lo persiste in Redis e Neo4j.
+Uploads a document, processes it through the full pipeline (chunking, embedding, entity extraction) and persists it in Redis and Neo4j.
 
-**Request Body** (`IngestRequest`):
+**Request body** (`IngestRequest`):
 
 ```json
 {
@@ -458,13 +417,13 @@ Carica un documento, lo processa attraverso la pipeline completa (chunking, embe
 }
 ```
 
-| Campo           | Tipo    | Default    | Descrizione                                      |
-| --------------- | ------- | ---------- | ------------------------------------------------ |
-| `file_path`     | string  | _required_ | Percorso del file da processare (PDF, DOCX, TXT) |
-| `thread_id`     | string  | _required_ | Namespace per isolamento multi-tenant            |
-| `skip_existing` | boolean | `true`     | Salta chunk gia presenti (dedup via SHA-256)     |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `file_path` | string | required | Path to the file to process (PDF, DOCX, TXT) |
+| `thread_id` | string | required | Namespace for multi-tenant isolation |
+| `skip_existing` | boolean | `true` | Skip already-indexed chunks (dedup via SHA-256) |
 
-**Risposta** (`IngestResult`):
+**Response** (`IngestResult`):
 
 ```json
 {
@@ -480,120 +439,114 @@ Carica un documento, lo processa attraverso la pipeline completa (chunking, embe
 }
 ```
 
-**Formati supportati**: `.pdf` (pypdf), `.docx` (python-docx), `.txt` (plain text).
+Supported formats: `.pdf` (pypdf), `.docx` (python-docx), `.txt` (plain text).
 
 ---
 
-#### `POST /query` — Query RAG (sincrona)
+#### `POST /query` — RAG query (synchronous)
 
-Esegue una query RAG ibrida: ricerca vettoriale + traversal del grafo + generazione LLM.
+Executes a hybrid RAG query: vector search + graph traversal + LLM generation.
 
-**Request Body** (`QueryRequest`):
+**Request body** (`QueryRequest`):
 
 ```json
 {
-  "query": "Quali tecnologie sono collegate a Neo4j?",
+  "query": "Which technologies are connected to Neo4j?",
   "thread_id": "my-project",
   "top_k": 10,
   "max_hops": 2
 }
 ```
 
-| Campo       | Tipo    | Default    | Descrizione                               |
-| ----------- | ------- | ---------- | ----------------------------------------- |
-| `query`     | string  | _required_ | Domanda in linguaggio naturale            |
-| `thread_id` | string  | _required_ | Namespace dei dati da interrogare         |
-| `top_k`     | integer | `10`       | Numero di risultati vettoriali            |
-| `max_hops`  | integer | `2`        | Profondita massima di traversal nel grafo |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `query` | string | required | Natural-language question |
+| `thread_id` | string | required | Namespace to query |
+| `top_k` | integer | `10` | Number of vector search results |
+| `max_hops` | integer | `2` | Maximum graph traversal depth |
 
-**Risposta** (`RAGResponse`):
+**Response** (`RAGResponse`):
 
 ```json
 {
-  "answer": "Neo4j e collegato a...",
+  "answer": "Neo4j is connected to...",
   "sources": [
-    {
-      "doc_id": "chunk-uuid",
-      "text_preview": "Prime 200 caratteri del chunk...",
-      "score": 0.876
-    }
+    { "doc_id": "chunk-uuid", "text_preview": "First 200 chars...", "score": 0.876 }
   ],
-  "nodes_used": ["node-id-1", "node-id-2"],
+  "nodes_used": ["node-id-1"],
   "edges_used": ["NodeA --USES--> NodeB"],
   "query_intent": "entity_query",
   "processing_time_ms": 3200.0
 }
 ```
 
-Il campo `query_intent` puo essere: `document_query`, `entity_query`, `relation_query`, `general`.
+`query_intent` can be: `document_query`, `entity_query`, `relation_query`, `general`.
 
 ---
 
-#### `POST /query/stream` — Query RAG (streaming SSE)
+#### `POST /query/stream` — RAG query (SSE streaming)
 
-Stessa request di `/query`, ma la risposta e uno stream di Server-Sent Events. Ogni token del LLM viene inviato come evento:
+Same request as `/query`, but the response is a stream of Server-Sent Events. Each LLM token is sent as an event:
 
-```
+```text
 data: Neo4j
-data:  e
-data:  collegato
-data:  a...
+data:  is
+data:  connected
+data:  to...
 data: [DONE]
 ```
 
-In caso di errore: `data: [ERROR] messaggio`.
+On error: `data: [ERROR] message`.
 
 ---
 
-#### `DELETE /documents/{document_id}` — Cancellazione documento
+#### `DELETE /documents/{document_id}` — Delete document
 
-Elimina un documento e tutti i relativi chunk da Redis.
+Removes a document and all its chunks from Redis.
 
-**Risposta**:
+**Response**:
 
 ```json
-{
-  "deleted": "a1b2c3d4-..."
-}
+{ "deleted": "a1b2c3d4-..." }
 ```
 
 ---
 
 ## Agent API Reference
 
-L'Agent API espone il sistema multi-agent su `http://localhost:8002` (porta interna 8001).
+The Agent API exposes the multi-agent system at `http://localhost:8002` (internal port 8001).
 
 - **Swagger UI**: <http://localhost:8002/docs>
 
 ### Agent Endpoints
 
-#### `POST /agents/run` — Esegui workflow multi-agent
+#### `POST /agents/run` — Execute multi-agent workflow
 
-Riceve una richiesta in linguaggio naturale, classifica l'intent, esegue il piano di agenti e restituisce l'output strutturato.
+Receives a natural-language request, classifies the intent, executes the agent plan and returns structured output.
 
-**Request Body**:
+**Request body**:
 
 ```json
 {
-  "request": "cosa sai su Neo4j?",
+  "request": "What do you know about Neo4j?",
   "thread_id": "default",
   "context": {}
 }
 ```
 
-| Campo       | Tipo   | Default    | Descrizione                              |
-| ----------- | ------ | ---------- | ---------------------------------------- |
-| `request`   | string | _required_ | Richiesta in linguaggio naturale         |
-| `thread_id` | string | `default`  | Namespace KG su cui operare              |
-| `context`   | dict   | `{}`       | Parametri extra (es. `file_path`, topic) |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `request` | string | required | Natural-language request |
+| `thread_id` | string | `default` | KG namespace to operate on |
+| `context` | dict | `{}` | Extra params (e.g. `file_path`, `topic`) |
 
-**Risposta** (`AgentRunResponse`):
+**Response** (`AgentRunResponse`):
 
 ```json
 {
   "run_id": "uuid",
   "intent": "query",
-  "output": "Neo4j è un graph database...",
+  "output": "Neo4j is a graph database...",
   "plan": [{"agent": "analyst", "action": "hybrid_search", "status": "done"}],
   "quality": {"overall_health": 0.85, "total_nodes": 120},
   "duration_ms": 2340,
@@ -601,56 +554,52 @@ Riceve una richiesta in linguaggio naturale, classifica l'intent, esegue il pian
 }
 ```
 
-**Intent classificati automaticamente**:
+**Automatically classified intents**:
 
-| Parole chiave nella richiesta | Intent        | Agente delegato  |
-| ----------------------------- | ------------- | ---------------- |
-| carica, ingest, upload        | `ingest`      | Ingestion Agent  |
-| cosa sai, dimmi, descrivi     | `query`       | Analyst Agent    |
-| analizza, conta, statistiche  | `analyze`     | Analyst Agent    |
-| report, genera, riassumi      | `synthesize`  | Synthesis Agent  |
-| verifica qualita, check       | `validate`    | Validator Agent  |
-| relazioni mancanti, gap       | `kgc`         | KGC Agent        |
-| salute, status, health        | `monitor`     | Monitor Agent    |
-
----
-
-#### `GET /agents/run/{run_id}` — Recupera un run
-
-Restituisce il record persistito di un'esecuzione precedente.
+| Keywords in request | Intent | Delegated agent |
+| --- | --- | --- |
+| ingest, upload, load | `ingest` | Ingestion Agent |
+| what do you know, describe, tell me | `query` | Analyst Agent |
+| analyse, count, statistics | `analyze` | Analyst Agent |
+| report, generate, summarise | `synthesize` | Synthesis Agent |
+| validate quality, check | `validate` | Validator Agent |
+| missing relations, gap | `kgc` | KGC Agent |
+| health, status, monitor | `monitor` | Monitor Agent |
 
 ---
 
-#### `GET /agents/runs` — Lista run recenti
+#### `GET /agents/run/{run_id}` — Retrieve a run
 
-Restituisce gli ultimi N run (default 20), ordinati per data decrescente.
+Returns the persisted record of a previous execution.
 
 ---
 
-#### `GET /agents/health` — Health check Agent API
+#### `GET /agents/runs` — List recent runs
+
+Returns the last N runs (default 20), ordered by date descending.
+
+---
+
+#### `GET /agents/health` — Agent API health check
 
 ```json
-{
-  "status": "ok",
-  "kg_api": true,
-  "kg_api_url": "http://localhost:8000"
-}
+{ "status": "ok", "kg_api": true, "kg_api_url": "http://localhost:8000" }
 ```
 
 ---
 
-## Sistema Multi-Agent
+## Multi-Agent system
 
-Il modulo `knowledge-graph-agents/` implementa il pattern **Supervisor + Specialists** descritto nel file `brainstorming_multi_agent_KG.md`.
+The `knowledge-graph-agents/` module implements the **Supervisor + Specialists** pattern.
 
-### Architettura interna
+### Internal architecture
 
-```
+```text
                     ┌──────────────────┐
                     │   ORCHESTRATOR   │
                     │  (Router+Planner)│
                     └────────┬─────────┘
-                             │  delega per intent (LangGraph)
+                             │  delegates by intent (LangGraph)
           ┌──────────────────┼──────────────────┐
           │                  │                  │
    ┌──────▼──────┐   ┌───────▼──────┐   ┌──────▼──────┐
@@ -670,90 +619,90 @@ Il modulo `knowledge-graph-agents/` implementa il pattern **Supervisor + Special
                     └──────────────────┘
 ```
 
-### Agenti
+### Agents
 
-| Agente | Responsabilita |
+| Agent | Responsibility |
 | --- | --- |
-| Orchestrator | Classifica intent, costruisce piano, non esegue azioni |
+| Orchestrator | Classifies intent, builds plan — never executes tools directly |
 | Ingestion | Health check, dedup check, `kg_ingest`, report |
-| Analyst | Vector search / graph traversal / hybrid (3 strategie) |
-| Validator | 4 query Cypher, `KGQualityReport` con `overall_health` |
-| KGC | Transitive closure + similarity, relazioni mancanti |
-| Synthesis | RAG context + Ollama, Markdown report (auto-ingest) |
-| Monitor | Health check + quality check rapido, alert summary |
+| Analyst | Vector search / graph traversal / hybrid (3 strategies) |
+| Validator | 4 Cypher queries, `KGQualityReport` with `overall_health` |
+| KGC | Transitive closure + similarity, finds missing relations |
+| Synthesis | RAG context + Ollama, Markdown report (optional auto-ingest) |
+| Monitor | Health check + quick quality check, alert summary |
 
-### Memoria agenti
+### Agent memory
 
-Ogni esecuzione viene registrata come `AgentRunRecord` (Pydantic) nello store in-process e, in modo best-effort, come nodo `AgentRun` in Neo4j tramite `POST /graph/cypher/write`.
+Each execution is recorded as an `AgentRunRecord` (Pydantic) in the in-process store and, best-effort, as an `AgentRun` node in Neo4j via `POST /graph/cypher/write`.
 
 ```cypher
 MATCH (r:AgentRun {run_id: $run_id})
 RETURN r.agent_name, r.intent, r.status, r.duration_ms
 ```
 
-### Test agenti
+### Agent tests
 
 ```bash
 cd knowledge-graph-agents
 pytest tests/ -v
 ```
 
-I test usano mock di `httpx` — nessun servizio attivo necessario.
+Tests use `httpx` mocks — no live services needed.
 
 ---
 
 ## UI (Frontend)
 
-La UI e una Single Page Application basata su Next.js 15 (App Router) con tre pagine principali.
+The UI is a Next.js 15 (App Router) SPA with three main pages.
 
 ### Dashboard (`/`)
 
-- Stato in tempo reale dei servizi (Neo4j, Redis, Ollama) con indicatori colorati
-- Link rapidi alle pagine funzionali
-- Accesso diretto a Swagger, Neo4j Browser, RedisInsight
+- Real-time service health indicators (Neo4j, Redis, Ollama)
+- Quick links to functional pages
+- Direct access to Swagger, Neo4j Browser, RedisInsight
 
 ### Search / Query (`/query`)
 
-- Form di ricerca con parametri configurabili (thread_id, top_k, max_hops)
-- Supporto streaming: i token appaiono in tempo reale durante la generazione
-- Visualizzazione strutturata dei risultati: risposta, sources con score, metadata (intent, nodi, archi, tempo)
+- Search form with configurable parameters (`thread_id`, `top_k`, `max_hops`)
+- SSE streaming support: tokens appear in real time during generation
+- Structured result view: answer, sources with score, metadata (intent, nodes, edges, time)
 
 ### Graph View (`/graph`)
 
-- Input query per esplorare porzioni del knowledge graph
-- Visualizzazione interattiva forze-direzionate (react-force-graph-2d)
-- Nodi colorati per tipo, archi con frecce e label delle relazioni
-- Zoom, pan e drag interattivi
+- Query input to explore sections of the knowledge graph
+- Interactive force-directed visualisation (react-force-graph-2d)
+- Colour-coded nodes by type, edges with arrows and relation labels
+- Zoom, pan and drag
 
-### Client API tipizzato
+### Typed API client
 
-Il file `src/lib/api-client.ts` funge da **contratto unico** tra UI e API:
+`src/lib/api-client.ts` is the single contract between UI and API:
 
-- Interfacce TypeScript che replicano i modelli Pydantic dell'API
-- Funzioni tipizzate per ogni endpoint (`getHealth`, `postQuery`, `postIngest`, `deleteDocument`)
-- Generatore asincrono `streamQuery()` per gestire lo streaming SSE
-- Supporto `AbortSignal` per cancellazione delle richieste
+- TypeScript interfaces mirroring the Pydantic models
+- Typed functions for every endpoint (`getHealth`, `postQuery`, `postIngest`, `deleteDocument`)
+- Async generator `streamQuery()` for SSE streaming
+- `AbortSignal` support for request cancellation
 
-### Configurazione UI
+### UI configuration
 
-Copia `.env.local.example` in `.env.local`:
+Copy `.env.local.example` to `.env.local`:
 
 ```bash
 cd knowledge-graph-ui
 cp .env.local.example .env.local
 ```
 
-| Variabile                       | Default                 | Descrizione                      |
-| ------------------------------- | ----------------------- | -------------------------------- |
-| `NEXT_PUBLIC_API_URL`           | `http://localhost:8000` | URL base dell'API                |
-| `NEXT_PUBLIC_ENABLE_STREAMING`  | `true`                  | Abilita/disabilita SSE streaming |
-| `NEXT_PUBLIC_ENABLE_GRAPH_VIEW` | `true`                  | Feature flag per la vista grafo  |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | API base URL |
+| `NEXT_PUBLIC_ENABLE_STREAMING` | `true` | Enable/disable SSE streaming |
+| `NEXT_PUBLIC_ENABLE_GRAPH_VIEW` | `true` | Feature flag for graph view |
 
 ---
 
-## Variabili d'ambiente
+## Environment variables
 
-Tutte le variabili sono definite in `.env.example` nella root. Copia in `.env` e personalizza:
+All variables are defined in `.env.example` at the root. Copy to `.env` and customise:
 
 ```bash
 cp .env.example .env
@@ -761,331 +710,328 @@ cp .env.example .env
 
 ### Neo4j
 
-| Variabile        | Default             | Descrizione                                         |
-| ---------------- | ------------------- | --------------------------------------------------- |
-| `NEO4J_URI`      | `bolt://neo4j:7687` | URI di connessione (usa `localhost` per dev locale) |
-| `NEO4J_USER`     | `neo4j`             | Username                                            |
-| `NEO4J_PASSWORD` | `yourpassword`      | **Da cambiare** in produzione                       |
-| `NEO4J_DATABASE` | `neo4j`             | Nome database                                       |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NEO4J_URI` | `bolt://neo4j:7687` | Connection URI (use `localhost` for local dev) |
+| `NEO4J_USER` | `neo4j` | Username |
+| `NEO4J_PASSWORD` | `yourpassword` | **Change this** in production |
+| `NEO4J_DATABASE` | `neo4j` | Database name |
 
 ### Redis
 
-| Variabile          | Default              | Descrizione                                            |
-| ------------------ | -------------------- | ------------------------------------------------------ |
-| `REDIS_URL`        | `redis://redis:6379` | URL di connessione (usa `localhost` per dev locale)    |
-| `REDIS_INDEX_NAME` | `kg_vectors`         | Nome dell'indice vettoriale                            |
-| `REDIS_VECTOR_DIM` | `768`                | Dimensione dei vettori (dipende dal modello embedding) |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `REDIS_URL` | `redis://redis:6379` | Connection URL (use `localhost` for local dev) |
+| `REDIS_INDEX_NAME` | `kg_vectors` | Vector index name |
+| `REDIS_VECTOR_DIM` | `768` | Vector dimension (depends on embedding model) |
 
 ### Ollama
 
-| Variabile                | Default               | Descrizione                                              |
-| ------------------------ | --------------------- | -------------------------------------------------------- |
-| `OLLAMA_BASE_URL`        | `http://ollama:11434` | URL del servizio Ollama (usa `localhost` per dev locale) |
-| `OLLAMA_LLM_MODEL`       | `llama3`              | Modello per generazione testo                            |
-| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text`    | Modello per embedding (768 dim)                          |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OLLAMA_BASE_URL` | `http://ollama:11434` | Ollama URL (use `localhost` for local dev) |
+| `OLLAMA_LLM_MODEL` | `llama3` | Text generation model |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model (768 dim) |
 
 ### Chunking
 
-| Variabile       | Default | Descrizione                                  |
-| --------------- | ------- | -------------------------------------------- |
-| `CHUNK_SIZE`    | `1024`  | Dimensione massima di ogni chunk (caratteri) |
-| `CHUNK_OVERLAP` | `128`   | Overlap tra chunk consecutivi (caratteri)    |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CHUNK_SIZE` | `1024` | Maximum chunk size (characters) |
+| `CHUNK_OVERLAP` | `128` | Overlap between consecutive chunks (characters) |
 
-### Applicazione
+### Application
 
-| Variabile   | Default | Descrizione                                  |
-| ----------- | ------- | -------------------------------------------- |
-| `LOG_LEVEL` | `INFO`  | Livello di log (DEBUG, INFO, WARNING, ERROR) |
-| `DEBUG`     | `false` | Modalita debug                               |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
+| `DEBUG` | `false` | Debug mode |
 
-> **Nota**: per sviluppo locale senza Docker, le variabili `NEO4J_URI`, `REDIS_URL` e `OLLAMA_BASE_URL` devono usare `localhost` invece dei nomi dei container Docker.
+> **Note**: for local development without Docker, `NEO4J_URI`, `REDIS_URL` and `OLLAMA_BASE_URL` must use `localhost` instead of Docker container names.
 
 ---
 
-## Debug con VS Code
+## Debugging with VS Code
 
-Apri la cartella `knowledge-graph/` in VS Code. La directory `.vscode/` contiene configurazioni pronte.
+Open the `knowledge-graph/` folder in VS Code. The `.vscode/` directory contains ready-to-use configurations.
 
-### Estensioni raccomandate
+### Recommended extensions
 
 - [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python) (ms-python.python)
 - [Ruff](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff) (charliermarsh.ruff)
 - [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) (esbenp.prettier-vscode)
-- [JavaScript Debugger](https://marketplace.visualstudio.com/items?itemName=ms-vscode.js-debug) (built-in)
+- JavaScript Debugger (built-in)
 
-### Configurazioni di debug (launch.json)
+### Debug configurations (launch.json)
 
-| Nome                       | Tipo     | Cosa fa                                                                          |
-| -------------------------- | -------- | -------------------------------------------------------------------------------- |
-| **API: FastAPI (debugpy)** | Python   | Avvia uvicorn con debugger Python, hot-reload, punta a `localhost` per i servizi |
-| **UI: Next.js (Server)**   | Node     | Avvia `npm run dev` e apre Chrome con debugger attivo                            |
-| **UI: Next.js (Chrome)**   | Chrome   | Si attacca a un server Next.js gia in esecuzione su :3000                        |
-| **API: Tests (pytest)**    | Python   | Esegue pytest con debugger per step-through dei test                             |
-| **Full Stack: API + UI**   | Compound | Avvia API + UI in parallelo con un solo click                                    |
+| Name | Type | Description |
+| --- | --- | --- |
+| **API: FastAPI (debugpy)** | Python | Starts uvicorn with Python debugger, hot-reload |
+| **UI: Next.js (Server)** | Node | Starts `npm run dev` and attaches Chrome debugger |
+| **UI: Next.js (Chrome)** | Chrome | Attaches to a running Next.js server on :3000 |
+| **API: Tests (pytest)** | Python | Runs pytest with step-through debugger |
+| **Agents: API (debugpy)** | Python | Starts Agent API with debugger on port 8001 |
+| **Agents: Orchestrator (debugpy)** | Python | Runs the LangGraph orchestrator directly |
+| **MCP: Server (debugpy)** | Python | Starts the MCP server with debugger |
+| **Full Stack: API + UI** | Compound | Starts API + UI in parallel with one click |
+| **Full Stack: All Services** | Compound | Starts API + UI + MCP + Agents |
 
-### Workflow consigliato
+### Recommended workflow
 
-1. Avvia l'infrastruttura: `docker compose up neo4j redis ollama -d`
-2. In VS Code, seleziona **"Full Stack: API + UI"** nel pannello Run and Debug
-3. Premi `F5` — si avviano API (porta 8000) e UI (porta 3000) con debugger attivi
-4. Imposta breakpoint nel codice Python (API) o TypeScript (UI)
-5. Apri `http://localhost:3000` nel browser
+1. Start infrastructure: `make up-dev`
+2. In VS Code, select **"Full Stack: API + UI"** in the Run and Debug panel
+3. Press `F5` — API (port 8000) and UI (port 3000) start with active debuggers
+4. Set breakpoints in Python (API) or TypeScript (UI) code
+5. Open `http://localhost:3000` in the browser
 
 ### Tasks (tasks.json)
 
-Accessibili da `Terminal > Run Task...`:
+Accessible from `Terminal > Run Task...`:
 
-| Task                    | Comando                                   |
-| ----------------------- | ----------------------------------------- |
-| Docker Compose Up       | `docker compose up --build -d`            |
-| Docker Compose Down     | `docker compose down`                     |
-| Docker Compose Up (Dev) | `docker compose -f ... -f ... up --build` |
-| API: Dev Server         | `uvicorn api.main:app --reload`           |
-| UI: Dev Server          | `npm run dev`                             |
-| API: Run Tests          | `pytest tests/ -v`                        |
-| API: Lint               | `ruff check .`                            |
-| Pull Ollama Models      | `ollama pull llama3 + nomic-embed-text`   |
+| Task | Command |
+| --- | --- |
+| Docker: Up Prod | `docker compose --profile prod up --build -d` |
+| Docker: Up Dev (infra + tools) | `docker compose --profile dev up -d` |
+| Docker: Down | `docker compose --profile prod --profile dev down` |
+| API: Dev Server | `uvicorn api.main:app --reload` |
+| UI: Dev Server | `npm run dev` |
+| API: Run Tests | `pytest tests/ -v` |
+| API: Lint | `ruff check .` |
+| Pull Ollama Models | `ollama pull llama3 + nomic-embed-text` |
 
 ---
 
-## Test e linting
+## Testing and linting
 
 ### API (Python)
 
 ```bash
 cd knowledge-graph-api
 
-# Esegui tutti i test
-pytest tests/ -v
-
-# Esegui un test specifico
-pytest tests/test_ingest.py -v -k "test_name"
-
-# Linting
-ruff check .
-
-# Auto-fix
-ruff check . --fix
+pytest tests/ -v                        # run all tests
+pytest tests/test_ingest.py -v -k "test_name"  # specific test
+ruff check .                            # lint
+ruff check . --fix                      # auto-fix
 ```
 
-I test usano mock per Neo4j, Redis e Ollama — non servono i servizi attivi.
+Tests use mocks for Neo4j, Redis and Ollama — no live services needed.
+
+### Agents (Python)
+
+```bash
+cd knowledge-graph-agents
+
+pytest tests/ -v
+ruff check .
+```
 
 ### UI (TypeScript)
 
 ```bash
 cd knowledge-graph-ui
-
-# ESLint
 npm run lint
 ```
 
-### Makefile targets (dal folder API)
+### Makefile targets (from repo root)
 
 ```bash
-cd knowledge-graph-api
-make test       # pytest -v
-make lint       # ruff check .
-make install    # pip install -r requirements.txt
-make run        # uvicorn --reload
-make seed       # python scripts/seed_data.py
-make demo       # python scripts/demo_query.py
+make test           # pytest (API)
+make lint           # ruff (API)
+make agents-test    # pytest (Agents)
+make agents-lint    # ruff (Agents)
+make mcp-test       # pytest (MCP)
 ```
 
 ---
 
-## Pipeline di ingestion
+## Ingestion pipeline
 
-La pipeline di ingestion (`POST /ingest`) processa un documento in 8 stadi:
+The ingestion pipeline (`POST /ingest`) processes a document in 8 stages:
 
+```text
+Document
+    |
+    v
+[1] File Routing -------> MIME type detection (PDF / DOCX / TXT)
+    |
+    v
+[2] Content Extraction -> Raw text + page count
+    |
+    v
+[3] Text Chunking ------> 1024-char chunks, 128-char overlap
+    |                     (respects sentence boundaries)
+    v
+[4] Embedding ----------> 768-D vectors via Ollama (nomic-embed-text)
+    |
+    v
+[5] Deduplication ------> SHA-256 hash to skip existing chunks
+    |
+    v
+[6] Entity Extraction --> LLM extracts entities (Person, Technology, ...)
+    |                     and relations (USES, PART_OF, ...)
+    v
+[7] Vector Storage -----> Upsert into Redis (RedisSearch + RedisJSON)
+    |
+    v
+[8] Graph Storage ------> Nodes and edges in Neo4j (MERGE/upsert)
 ```
-Documento
-    |
-    v
-[1] File Routing -----> Identificazione MIME type (PDF / DOCX / TXT)
-    |
-    v
-[2] Content Extraction -> Testo grezzo + conteggio pagine
-    |
-    v
-[3] Text Chunking -----> Chunk da 1024 char con overlap di 128
-    |                     (rispetta confini di frase)
-    v
-[4] Embedding ---------> Vettori 768-D via Ollama (nomic-embed-text)
-    |
-    v
-[5] Deduplication -----> Hash SHA-256 per saltare chunk duplicati
-    |
-    v
-[6] Entity Extraction -> LLM estrae entita (Person, Technology, ...)
-    |                     e relazioni (USES, PART_OF, ...)
-    v
-[7] Vector Storage ----> Upsert in Redis (RedisSearch + RedisJSON)
-    |
-    v
-[8] Graph Storage -----> Nodi e archi in Neo4j (MERGE/upsert)
-```
 
-### Tipi di entita supportati
+### Supported entity types
 
 Person, Organization, Product, Technology, Process, Event, Location, Concept, Document, Category, Tag
 
-### Tipi di relazione supportati
+### Supported relation types
 
 BELONGS_TO, RELATES_TO, CREATED_BY, MENTIONS, PART_OF, USES, LOCATED_IN, OCCURRED_AT, HAS_TAG, SIMILAR_TO, DEPENDS_ON, REPLACED_BY
 
 ---
 
-## Pipeline RAG (query)
+## RAG pipeline (query)
 
-La pipeline RAG (`POST /query`) risponde a domande in 5 stadi:
+The RAG pipeline (`POST /query`) answers questions in 5 stages:
 
-```
-Domanda utente
+```text
+User question
     |
     v
-[1] Intent Classification -> Tipo: document_query | entity_query
-    |                                relation_query | general
+[1] Intent Classification -> document_query | entity_query
+    |                                        | relation_query | general
     v
-[2] Vector Search ---------> Top-K documenti per similarita coseno
+[2] Vector Search ---------> Top-K documents by cosine similarity
     |                         (Redis KNN)
     v
-[3] Graph Enrichment ------> Traversal dei vicini fino a max_hops
+[3] Graph Enrichment ------> Traversal of neighbours up to max_hops
     |                         (Neo4j Cypher)
     v
-[4] Context Assembly ------> Prompt di sistema con chunk + nodi + archi
+[4] Context Assembly ------> System prompt with chunks + nodes + edges
     |
     v
-[5] LLM Generation -------> Risposta (sync o streaming SSE)
+[5] LLM Generation -------> Response (sync JSON or SSE stream)
 ```
 
-La ricerca e **ibrida**: combina similarita semantica (vettoriale) con relazioni strutturali (grafo) per produrre risposte piu complete e contestualizzate.
+The search is **hybrid**: it combines semantic similarity (vector) with structural relations (graph) to produce more complete and context-aware answers.
 
 ---
 
-## Modelli dati
+## Data models
 
 ### VectorDocument (Redis)
 
-Ogni chunk di un documento viene salvato in Redis come JSON con indice vettoriale:
+Each document chunk is stored in Redis as JSON with a vector index:
 
-| Campo              | Tipo       | Descrizione                      |
-| ------------------ | ---------- | -------------------------------- |
-| `id`               | UUID       | Identificativo univoco del chunk |
-| `thread_id`        | string     | Namespace/partizione             |
-| `text`             | string     | Contenuto testuale del chunk     |
-| `name`             | string     | Nome del file sorgente           |
-| `vector`           | float[768] | Embedding del chunk              |
-| `content_hash`     | string     | SHA-256 per deduplicazione       |
-| `base_document_id` | string     | ID del documento padre           |
-| `mime_type`        | string     | Tipo MIME del file originale     |
-| `page_number`      | integer    | Numero di pagina (per PDF)       |
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Unique chunk identifier |
+| `thread_id` | string | Namespace / partition |
+| `text` | string | Chunk text content |
+| `name` | string | Source filename |
+| `vector` | float[768] | Chunk embedding |
+| `content_hash` | string | SHA-256 for deduplication |
+| `base_document_id` | string | Parent document ID |
+| `mime_type` | string | Original file MIME type |
+| `page_number` | integer | Page number (PDFs) |
 
 ### GraphNode (Neo4j)
 
-Ogni entita estratta viene salvata come nodo nel grafo:
+Each extracted entity is stored as a node in the graph:
 
-| Campo              | Tipo     | Descrizione                    |
-| ------------------ | -------- | ------------------------------ |
-| `id`               | UUID     | Identificativo univoco         |
-| `name`             | string   | Nome dell'entita               |
-| `label`            | string   | Etichetta di visualizzazione   |
-| `node_type`        | string   | Tipo (Person, Technology, ...) |
-| `namespace`        | string   | Namespace/partizione           |
-| `importance`       | float    | Score 0-1                      |
-| `confidence`       | float    | Score 0-1                      |
-| `source_chunk_ids` | string[] | Riferimenti ai chunk sorgente  |
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Unique identifier |
+| `name` | string | Entity name |
+| `label` | string | Display label |
+| `node_type` | string | Type (Person, Technology, ...) |
+| `namespace` | string | Namespace / partition |
+| `importance` | float | Score 0-1 |
+| `confidence` | float | Score 0-1 |
+| `source_chunk_ids` | string[] | References to source chunks |
 
 ### Relation (Neo4j)
 
-Ogni relazione estratta diventa un arco nel grafo:
+Each extracted relation becomes an edge in the graph:
 
-| Campo           | Tipo   | Descrizione                    |
-| --------------- | ------ | ------------------------------ |
-| `id`            | UUID   | Identificativo univoco         |
-| `source_id`     | string | Nodo sorgente                  |
-| `target_id`     | string | Nodo destinazione              |
-| `relation_type` | string | Tipo (USES, PART_OF, ...)      |
-| `weight`        | float  | Forza della relazione 0-1      |
-| `confidence`    | float  | Confidenza dell'estrazione 0-1 |
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Unique identifier |
+| `source_id` | string | Source node |
+| `target_id` | string | Target node |
+| `relation_type` | string | Type (USES, PART_OF, ...) |
+| `weight` | float | Relation strength 0-1 |
+| `confidence` | float | Extraction confidence 0-1 |
 
 ---
 
-## Riferimenti scientifici
+## Scientific references
 
-Il progetto si ispira alle seguenti pipeline e paper:
+This project draws inspiration from the following pipelines and papers:
 
-| Paper / Tool                       | Utilizzo nel progetto                                      |
-| ---------------------------------- | ---------------------------------------------------------- |
-| **OpenIE6** (Kolluru et al., 2020) | Pattern per estrazione triple open-domain                  |
-| **CoDe-KG** (Anuyah et al., 2025)  | Pipeline modulare: coreference + decomposition + RE        |
-| **KGGen** (Mo et al., 2025)        | Entity clustering/dedup per ridurre sparsita del grafo     |
-| **BLINK** (Wu et al., 2019)        | Architettura bi-encoder + cross-encoder per entity linking |
-| **DocRED** (Yao et al., 2019)      | Benchmark per relation extraction a livello documento      |
+| Paper / Tool | Usage in this project |
+| --- | --- |
+| **OpenIE6** (Kolluru et al., 2020) | Patterns for open-domain triple extraction |
+| **CoDe-KG** (Anuyah et al., 2025) | Modular pipeline: coreference + decomposition + RE |
+| **KGGen** (Mo et al., 2025) | Entity clustering/dedup to reduce graph sparsity |
+| **BLINK** (Wu et al., 2019) | Bi-encoder + cross-encoder architecture for entity linking |
+| **DocRED** (Yao et al., 2019) | Benchmark for document-level relation extraction |
 
-Architettura ibrida raccomandata dai paper: **Graph DB** (Neo4j/Cypher) per struttura + **Vector DB** (Redis/FAISS) per similarita semantica, con possibilita di indici vettoriali direttamente in Neo4j (`CREATE VECTOR INDEX`).
+Hybrid architecture recommended by the papers: **Graph DB** (Neo4j/Cypher) for structure + **Vector DB** (Redis/FAISS) for semantic similarity, with the option of vector indexes directly in Neo4j (`CREATE VECTOR INDEX`).
 
 ---
 
 ## Troubleshooting
 
-### Ollama non si avvia o non risponde
+### Ollama does not start or does not respond
 
 ```bash
-# Verifica lo stato
 docker compose logs ollama
 
-# Se il container e up ma i modelli non sono scaricati
+# If the container is up but models are not downloaded
 docker compose exec ollama ollama list
-docker compose exec ollama ollama pull llama3
-docker compose exec ollama ollama pull nomic-embed-text
+make pull-models
 ```
 
-La prima query dopo il pull dei modelli puo essere lenta (~30s) per il caricamento in memoria.
+The first query after pulling models may be slow (~30s) due to model loading.
 
-### Neo4j healthcheck fallisce
+### Neo4j healthcheck fails
 
 ```bash
-# Verifica i log
 docker compose logs neo4j
 
-# Verifica che la password corrisponda
-echo $NEO4J_PASSWORD  # deve corrispondere al valore in .env
+# Verify the password matches
+echo $NEO4J_PASSWORD   # must match the value in .env
 ```
 
-### L'API risponde "degraded" al health check
+### API returns "degraded" on health check
 
-Significa che uno o piu servizi backend non sono raggiungibili. Controlla quali servizi hanno `false`:
+One or more backend services are unreachable. Check which ones return `false`:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-Verifica che i container siano running: `docker compose ps`
+Verify all containers are running: `docker compose ps`
 
-### La UI non si connette all'API
+### UI cannot connect to the API
 
-Verifica che `NEXT_PUBLIC_API_URL` sia impostata correttamente in `.env.local`:
+Verify `NEXT_PUBLIC_API_URL` is set correctly in `.env.local`:
 
-- Dev locale: `http://localhost:8000`
-- Docker: `http://localhost:8000` (il browser chiama l'API direttamente)
-- Se API e UI sono su host diversi: configurare CORS sull'API (attualmente `allow_origins=["*"]`)
+- Local dev: `http://localhost:8000`
+- Docker: `http://localhost:8000` (the browser calls the API directly)
+- Cross-host: configure CORS on the API (currently `allow_origins=["*"]`)
 
-### Errori di memoria
+### Memory errors
 
-Lo stack completo richiede circa 6-8 GB di RAM. Se Docker ha limiti inferiori:
+The full stack requires ~6-8 GB RAM. If Docker has lower limits:
 
 ```bash
-# Controlla l'uso di memoria
 docker stats
 
-# Riduci caricando un modello Ollama piu leggero
-# o disabilita APOC se non necessario
+# Use a smaller Ollama model or disable APOC if not needed
 ```
 
-### Reset completo dei dati
+### Full data reset
 
 ```bash
-# ATTENZIONE: cancella tutti i dati!
+# WARNING: deletes all data!
 docker compose down -v
-docker compose up --build -d
+make up-prod
 ```

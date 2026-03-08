@@ -1,7 +1,74 @@
+# ── Profiles ──────────────────────────────────────────────────────────────────
+#
+#   dev   → infrastructure + UI clients (neo4j + redis + ollama + redisinsight)
+#   prod  → full production stack (infra + api + ui + mcp + agents)
+#
+# Quick reference (see Makefile):
+#   docker compose --profile dev  up -d   # infra + dev tools
+#   docker compose --profile prod up -d   # full production stack
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
 services:
 
-  # ── API (FastAPI / Python) ──────────────────────────────────────────
+  # ── Neo4j (Graph DB) ────────────────────────────────────────────────────────
+  neo4j:
+    profiles: [dev, prod]
+    image: neo4j:5.18
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD}"
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Redis Stack (Vector Store + RedisInsight :8001) ──────────────────────────
+  redis:
+    profiles: [dev, prod]
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Ollama (LLM Inference) ───────────────────────────────────────────────────
+  ollama:
+    profiles: [dev, prod]
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── API (FastAPI / Python) ───────────────────────────────────────────────────
   api:
+    profiles: [prod]
     build:
       context: ./knowledge-graph-api
       dockerfile: infra/docker/Dockerfile
@@ -21,8 +88,9 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── UI (Next.js) ────────────────────────────────────────────────────
+  # ── UI (Next.js) ─────────────────────────────────────────────────────────────
   ui:
+    profiles: [prod]
     build:
       context: ./knowledge-graph-ui
       dockerfile: Dockerfile
@@ -43,8 +111,9 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── MCP Server ──────────────────────────────────────────────────────
+  # ── MCP Server ───────────────────────────────────────────────────────────────
   mcp:
+    profiles: [prod]
     build:
       context: ./knowledge-graph-mcp
       dockerfile: Dockerfile
@@ -64,8 +133,9 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Agents (Multi-Agent Orchestration) ─────────────────────────────
+  # ── Agents (Multi-Agent Orchestration) ──────────────────────────────────────
   agents:
+    profiles: [prod]
     build:
       context: ./knowledge-graph-agents
       dockerfile: Dockerfile
@@ -85,63 +155,27 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Neo4j (Graph DB) ────────────────────────────────────────────────
-  neo4j:
-    image: neo4j:5.18
+  # ── RedisInsight standalone (dev only) ──────────────────────────────────────
+  # Web UI for browsing Redis keys, data structures and vectors.
+  # Access: http://localhost:5540
+  # First-time setup: add connection → host: redis  port: 6379
+  redisinsight:
+    profiles: [dev]
+    image: redis/redisinsight:latest
     ports:
-      - "7474:7474"
-      - "7687:7687"
-    environment:
-      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD}"
-      NEO4J_PLUGINS: '["apoc"]'
+      - "5540:5540"
     volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
-    healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # ── Redis Stack (Vector Store) ──────────────────────────────────────
-  redis:
-    image: redis/redis-stack:latest
-    ports:
-      - "6379:6379"
-      - "8001:8001"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
-  # ── Ollama (LLM Inference) ──────────────────────────────────────────
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    deploy:
-       resources:
-         reservations:
-           devices:
-             - driver: nvidia
-               count: all
-               capabilities: [gpu]
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
 
 volumes:
   neo4j_data:
   neo4j_logs:
   redis_data:
   ollama_models:
+  redisinsight_data:
 
 networks:
   default:

@@ -2,23 +2,23 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Docker Compose Up",
+      "label": "Docker: Up Prod",
       "type": "shell",
-      "command": "docker compose up --build -d",
+      "command": "docker compose --profile prod up --build -d",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "Docker Compose Down",
+      "label": "Docker: Up Dev (infra + tools)",
       "type": "shell",
-      "command": "docker compose down",
+      "command": "docker compose --profile dev up -d",
+      "group": "build",
       "problemMatcher": []
     },
     {
-      "label": "Docker Compose Up (Dev)",
+      "label": "Docker: Down",
       "type": "shell",
-      "command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
-      "group": "build",
+      "command": "docker compose --profile prod --profile dev down",
       "problemMatcher": []
     },
     {
