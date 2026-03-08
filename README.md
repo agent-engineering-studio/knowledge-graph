@@ -3,7 +3,7 @@
 ![Knowledge Graph Lab](assets/banner.svg)
 
 Complete **Knowledge Graph** system with document ingestion pipeline, vector store, graph database, hybrid RAG, web interface and a **multi-agent** orchestration layer built on LangGraph.
-Companion project for the book _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni, 2026).
+Companion project for the book _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni - Hevolus Innovation, 2026).
 
 ---
 
