@@ -4,8 +4,8 @@
   <img src="assets/banner.svg" alt="Knowledge Graph Lab" width="100%"/>
 </p>
 
-Sistema completo di **Knowledge Graph** con pipeline di ingestion, vector store, graph database, pipeline RAG e interfaccia web.
-Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Giuseppe Zileni, 2026).
+Sistema completo di **Knowledge Graph** con pipeline di ingestion, vector store, graph database, pipeline RAG, interfaccia web e **sistema multi-agent** con orchestrazione LangGraph.
+Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni, 2026).
 
 ---
 
@@ -19,6 +19,8 @@ Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Giu
 - [Avvio con Docker](#avvio-con-docker)
 - [Struttura del repository](#struttura-del-repository)
 - [API Reference](#api-reference)
+- [Agent API Reference](#agent-api-reference)
+- [Sistema Multi-Agent](#sistema-multi-agent)
 - [UI (Frontend)](#ui-frontend)
 - [Variabili d'ambiente](#variabili-dambiente)
 - [Debug con VS Code](#debug-con-vs-code)
@@ -34,38 +36,48 @@ Progetto companion del libro _"Knowledge Graph: dalla Teoria alla Pratica"_ (Giu
 ## Architettura
 
 ```
-                        +------------------+
-                        |    Browser       |
-                        |  localhost:3000   |
-                        +--------+---------+
-                                 |
-                        +--------v---------+
-                        |   Next.js UI     |
-                        | (knowledge-graph |
-                        |      -ui)        |
-                        +--------+---------+
-                                 | fetch / SSE
-                        +--------v---------+
-                        |   FastAPI API    |
-                        | (knowledge-graph |
-                        |      -api)       |
-                        |  localhost:8000   |
-                        +--+-----+------+--+
-                           |     |      |
-              +------------+  +--+--+  ++-----------+
-              |               |     |               |
-     +--------v------+ +-----v---+ +------v--------+
-     | Neo4j 5.18    | | Redis   | | Ollama        |
-     | Graph DB      | | Stack   | | llama3 +      |
-     | :7474 / :7687 | | :6379   | | nomic-embed   |
-     +---------------+ | :8001   | | :11434        |
-                       +---------+ +---------------+
+  Cliente / LLM Host (Claude Desktop, VS Code, custom app)
+         |                            |
+         | MCP Protocol               | HTTP REST
+         v                            v
+  +------------------+      +--------------------+
+  | knowledge-graph  |      |  knowledge-graph   |
+  |      -mcp        |      |      -agents       |
+  | (MCP tool layer) |      | (Multi-Agent API)  |
+  | localhost:8080   |      | localhost:8002     |
+  +--------+---------+      +--------+-----------+
+           |                         |
+           +----------+--------------+
+                      | HTTP REST
+             +--------v---------+
+             |   FastAPI API    |
+             | knowledge-graph  |
+             |      -api        |
+             |  localhost:8000  |
+             +--+-----+------+--+
+                |     |      |
+   +------------+  +--+--+  ++-----------+
+   |               |     |               |
++--v------------+ +v----v--+ +----------v-----+
+| Neo4j 5.18   | | Redis   | | Ollama         |
+| Graph DB     | | Stack   | | llama3 +       |
+| :7474 / :7687| | :6379   | | nomic-embed    |
++--------------+ | :8001   | | :11434         |
+                 +---------+ +----------------+
+                      ^
+             +--------+---------+
+             |   Next.js UI     |
+             | knowledge-graph  |
+             |      -ui         |
+             |  localhost:3000  |
+             +------------------+
 ```
 
-Il flusso dati segue due percorsi principali:
+Il flusso dati segue tre percorsi principali:
 
-1. **Ingestion**: documento -> chunking -> embedding (Ollama) -> dedup (SHA-256) -> entity/relation extraction (LLM) -> storage in Redis (vettori) + Neo4j (grafo)
-2. **Query RAG**: domanda -> intent classification -> vector search (Redis) -> graph traversal (Neo4j) -> context assembly -> LLM generation (Ollama) -> risposta
+1. **Ingestion**: documento → chunking → embedding (Ollama) → dedup (SHA-256) → entity/relation extraction (LLM) → storage in Redis (vettori) + Neo4j (grafo)
+2. **Query RAG**: domanda → intent classification → vector search (Redis) → graph traversal (Neo4j) → context assembly → LLM generation (Ollama) → risposta
+3. **Multi-Agent**: richiesta → Orchestrator (LangGraph) → agente specializzato → tool HTTP verso API → risposta strutturata
 
 ---
 
@@ -78,8 +90,9 @@ Il flusso dati segue due percorsi principali:
 | **LLM Inference**       | Ollama (locale, no API key)              | latest      |
 | **LLM Model**           | Llama 3                                  | latest      |
 | **Embedding Model**     | nomic-embed-text (768 dim)               | latest      |
-| **REST API**            | FastAPI + uvicorn                        | 0.111+      |
+| **REST API**            | FastAPI + uvicorn                        | 0.115+      |
 | **Modelli dati**        | Pydantic v2 + pydantic-settings          | 2.7+        |
+| **Multi-Agent**         | LangGraph (StateGraph + routing)         | 0.2+        |
 | **Frontend**            | Next.js + React + Tailwind CSS           | 15 / 19 / 4 |
 | **Graph Visualization** | react-force-graph-2d                     | 1.26+       |
 | **Logging**             | structlog (JSON in prod, console in dev) | 24.1+       |
@@ -123,9 +136,10 @@ docker compose exec ollama ollama pull nomic-embed-text
 cd knowledge-graph-api && make seed
 
 # 6. Apri il browser
-#    UI:           http://localhost:3000
-#    API Swagger:  http://localhost:8000/docs
-#    Neo4j:        http://localhost:7474
+#    UI:            http://localhost:3000
+#    API Swagger:   http://localhost:8000/docs
+#    Agent API:     http://localhost:8002/docs
+#    Neo4j:         http://localhost:7474
 #    RedisInsight:  http://localhost:8001
 ```
 
@@ -174,7 +188,37 @@ uvicorn api.main:app --reload --port 8000
 
 L'API sara disponibile su `http://localhost:8000`. La documentazione Swagger interattiva su `http://localhost:8000/docs`.
 
-### 4. UI (Next.js)
+### 4. Agents (Multi-Agent API)
+
+```bash
+cd knowledge-graph-agents
+
+# Crea e attiva virtualenv
+python -m venv venv
+source venv/bin/activate        # Linux/macOS
+# venv\Scripts\activate         # Windows
+
+# Installa dipendenze
+pip install -r requirements.txt
+
+# Configura env
+cp .env.example .env
+# Verifica KG_API_URL=http://localhost:8000
+
+# Avvia con hot-reload
+uvicorn api.agent_api:app --reload --port 8001
+```
+
+L'Agent API sara disponibile su `http://localhost:8001`. Swagger su `http://localhost:8001/docs`.
+
+```bash
+# Esempio di chiamata
+curl -X POST http://localhost:8001/agents/run \
+  -H "Content-Type: application/json" \
+  -d '{"request": "cosa sai su Neo4j?", "thread_id": "default"}'
+```
+
+### 5. UI (Next.js)
 
 ```bash
 cd knowledge-graph-ui
@@ -207,15 +251,17 @@ docker compose up --build -d
 
 Servizi esposti:
 
-| Servizio      | URL                         | Descrizione           |
-| ------------- | --------------------------- | --------------------- |
-| UI            | http://localhost:3000       | Frontend Next.js      |
-| API           | http://localhost:8000       | REST API FastAPI      |
-| API Docs      | http://localhost:8000/docs  | Swagger UI            |
-| API ReDoc     | http://localhost:8000/redoc | ReDoc                 |
-| Neo4j Browser | http://localhost:7474       | Interfaccia web Neo4j |
-| RedisInsight  | http://localhost:8001       | Interfaccia web Redis |
-| Ollama        | http://localhost:11434      | API Ollama            |
+| Servizio      | URL                         | Descrizione                      |
+| ------------- | --------------------------- | -------------------------------- |
+| UI            | http://localhost:3000       | Frontend Next.js                 |
+| API           | http://localhost:8000       | REST API FastAPI                 |
+| API Docs      | http://localhost:8000/docs  | Swagger UI (API)                 |
+| Agent API     | http://localhost:8002       | Multi-Agent Orchestration API    |
+| Agent Docs    | http://localhost:8002/docs  | Swagger UI (Agent API)           |
+| MCP Server    | http://localhost:8080       | MCP tool layer (SSE transport)   |
+| Neo4j Browser | http://localhost:7474       | Interfaccia web Neo4j            |
+| RedisInsight  | http://localhost:8001       | Interfaccia web Redis            |
+| Ollama        | http://localhost:11434      | API Ollama                       |
 
 ### Sviluppo (con hot-reload)
 
@@ -315,6 +361,34 @@ knowledge-graph/
 │   ├── infra/docker/Dockerfile     # Dockerfile API
 │   ├── requirements.txt
 │   └── Makefile
+│
+├── knowledge-graph-agents/         # 🆕 Multi-Agent Orchestration (Python / LangGraph)
+│   ├── agents/                     # Agenti specializzati
+│   │   ├── orchestrator.py         # Router + Planner (classifica intent, costruisce piano)
+│   │   ├── ingestion.py            # Ingestion Agent (ingest + health check)
+│   │   ├── analyst.py              # Analyst Agent (vector / graph / hybrid)
+│   │   ├── validator.py            # Validator Agent (KGQualityReport)
+│   │   ├── kgc.py                  # KGC Agent (Knowledge Graph Completion)
+│   │   ├── synthesis.py            # Synthesis Agent (report via Ollama)
+│   │   └── monitor.py              # Monitor Agent (health + quality alerts)
+│   ├── orchestration/              # LangGraph workflow
+│   │   ├── state.py                # AgentState + Intent + AgentStep (TypedDict)
+│   │   ├── router.py               # Intent classification (regex, 8 intent)
+│   │   ├── planner.py              # build_plan() per intent
+│   │   └── graph.py                # StateGraph con routing condizionale
+│   ├── tools/
+│   │   └── kg_tools.py             # Wrapper HTTP async verso knowledge-graph-api
+│   ├── memory/
+│   │   └── kg_memory.py            # AgentRunRecord + in-process store
+│   ├── api/
+│   │   └── agent_api.py            # FastAPI app porta 8001 (→ host 8002 in Docker)
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   └── test_agents.py          # 8 test con mock httpx
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── pyproject.toml
+│   └── .env.example
 │
 └── knowledge-graph-ui/             # Frontend (Next.js / React)
     ├── src/
@@ -482,6 +556,149 @@ Elimina un documento e tutti i relativi chunk da Redis.
   "deleted": "a1b2c3d4-..."
 }
 ```
+
+---
+
+## Agent API Reference
+
+L'Agent API espone il sistema multi-agent su `http://localhost:8002` (porta interna 8001).
+
+- **Swagger UI**: <http://localhost:8002/docs>
+
+### Agent Endpoints
+
+#### `POST /agents/run` — Esegui workflow multi-agent
+
+Riceve una richiesta in linguaggio naturale, classifica l'intent, esegue il piano di agenti e restituisce l'output strutturato.
+
+**Request Body**:
+
+```json
+{
+  "request": "cosa sai su Neo4j?",
+  "thread_id": "default",
+  "context": {}
+}
+```
+
+| Campo       | Tipo   | Default    | Descrizione                              |
+| ----------- | ------ | ---------- | ---------------------------------------- |
+| `request`   | string | _required_ | Richiesta in linguaggio naturale         |
+| `thread_id` | string | `default`  | Namespace KG su cui operare              |
+| `context`   | dict   | `{}`       | Parametri extra (es. `file_path`, topic) |
+
+**Risposta** (`AgentRunResponse`):
+
+```json
+{
+  "run_id": "uuid",
+  "intent": "query",
+  "output": "Neo4j è un graph database...",
+  "plan": [{"agent": "analyst", "action": "hybrid_search", "status": "done"}],
+  "quality": {"overall_health": 0.85, "total_nodes": 120},
+  "duration_ms": 2340,
+  "error": null
+}
+```
+
+**Intent classificati automaticamente**:
+
+| Parole chiave nella richiesta | Intent        | Agente delegato  |
+| ----------------------------- | ------------- | ---------------- |
+| carica, ingest, upload        | `ingest`      | Ingestion Agent  |
+| cosa sai, dimmi, descrivi     | `query`       | Analyst Agent    |
+| analizza, conta, statistiche  | `analyze`     | Analyst Agent    |
+| report, genera, riassumi      | `synthesize`  | Synthesis Agent  |
+| verifica qualita, check       | `validate`    | Validator Agent  |
+| relazioni mancanti, gap       | `kgc`         | KGC Agent        |
+| salute, status, health        | `monitor`     | Monitor Agent    |
+
+---
+
+#### `GET /agents/run/{run_id}` — Recupera un run
+
+Restituisce il record persistito di un'esecuzione precedente.
+
+---
+
+#### `GET /agents/runs` — Lista run recenti
+
+Restituisce gli ultimi N run (default 20), ordinati per data decrescente.
+
+---
+
+#### `GET /agents/health` — Health check Agent API
+
+```json
+{
+  "status": "ok",
+  "kg_api": true,
+  "kg_api_url": "http://localhost:8000"
+}
+```
+
+---
+
+## Sistema Multi-Agent
+
+Il modulo `knowledge-graph-agents/` implementa il pattern **Supervisor + Specialists** descritto nel file `brainstorming_multi_agent_KG.md`.
+
+### Architettura interna
+
+```
+                    ┌──────────────────┐
+                    │   ORCHESTRATOR   │
+                    │  (Router+Planner)│
+                    └────────┬─────────┘
+                             │  delega per intent (LangGraph)
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+   ┌──────▼──────┐   ┌───────▼──────┐   ┌──────▼──────┐
+   │  INGESTION  │   │   ANALYST    │   │  SYNTHESIS  │
+   │   AGENT     │   │    AGENT     │   │    AGENT    │
+   └──────┬──────┘   └───────┬──────┘   └──────┬──────┘
+          │                  │                  │
+   ┌──────▼──────┐   ┌───────▼──────┐   ┌──────▼──────┐
+   │  VALIDATOR  │   │     KGC      │   │   MONITOR   │
+   │   AGENT     │   │    AGENT     │   │    AGENT    │
+   └─────────────┘   └──────────────┘   └─────────────┘
+                             │ HTTP REST
+                    ┌────────▼─────────┐
+                    │ knowledge-graph  │
+                    │      -api        │
+                    │  Neo4j + Redis   │
+                    └──────────────────┘
+```
+
+### Agenti
+
+| Agente | Responsabilita |
+| --- | --- |
+| Orchestrator | Classifica intent, costruisce piano, non esegue azioni |
+| Ingestion | Health check, dedup check, `kg_ingest`, report |
+| Analyst | Vector search / graph traversal / hybrid (3 strategie) |
+| Validator | 4 query Cypher, `KGQualityReport` con `overall_health` |
+| KGC | Transitive closure + similarity, relazioni mancanti |
+| Synthesis | RAG context + Ollama, Markdown report (auto-ingest) |
+| Monitor | Health check + quality check rapido, alert summary |
+
+### Memoria agenti
+
+Ogni esecuzione viene registrata come `AgentRunRecord` (Pydantic) nello store in-process e, in modo best-effort, come nodo `AgentRun` in Neo4j tramite `POST /graph/cypher/write`.
+
+```cypher
+MATCH (r:AgentRun {run_id: $run_id})
+RETURN r.agent_name, r.intent, r.status, r.duration_ms
+```
+
+### Test agenti
+
+```bash
+cd knowledge-graph-agents
+pytest tests/ -v
+```
+
+I test usano mock di `httpx` — nessun servizio attivo necessario.
 
 ---
 

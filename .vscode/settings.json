@@ -1,0 +1,26 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/knowledge-graph-api/venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/knowledge-graph-api",
+    "${workspaceFolder}/knowledge-graph-agents"
+  ],
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/neo4j_data": true,
+    "**/redis_data": true,
+    "**/ollama_models": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true
+  },
+  "typescript.tsdk": "knowledge-graph-ui/node_modules/typescript/lib"
+}

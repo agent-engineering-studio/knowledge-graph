@@ -1,0 +1,150 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API: FastAPI (debugpy)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["api.main:app", "--reload", "--port", "8000"],
+      "cwd": "${workspaceFolder}/knowledge-graph-api",
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "yourpassword",
+        "REDIS_URL": "redis://localhost:6379",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "LOG_LEVEL": "DEBUG",
+        "DEBUG": "true"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "UI: Next.js (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/knowledge-graph-ui",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack://_N_E/*": "${webRoot}/*"
+      }
+    },
+    {
+      "name": "UI: Next.js (Server)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/knowledge-graph-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "pattern": "- Local:.+(https?://.+)",
+        "uriFormat": "%s",
+        "action": "debugWithChrome"
+      }
+    },
+    {
+      "name": "API: Tests (pytest)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-v"],
+      "cwd": "${workspaceFolder}/knowledge-graph-api",
+      "justMyCode": false
+    },
+    {
+      "name": "MCP: Server (debugpy)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "kg_mcp.server",
+      "cwd": "${workspaceFolder}/knowledge-graph-mcp/src",
+      "env": {
+        "KG_API_URL": "http://localhost:8000"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "MCP: Tests (pytest)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-v"],
+      "cwd": "${workspaceFolder}/knowledge-graph-mcp",
+      "justMyCode": false
+    },
+    {
+      "name": "Agents: API (debugpy)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["api.agent_api:app", "--reload", "--port", "8001"],
+      "cwd": "${workspaceFolder}/knowledge-graph-agents",
+      "env": {
+        "KG_API_URL": "http://localhost:8000",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_LLM_MODEL": "llama3",
+        "KG_API_TIMEOUT": "60"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Agents: Tests (pytest)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-v"],
+      "cwd": "${workspaceFolder}/knowledge-graph-agents",
+      "env": {
+        "KG_API_URL": "http://localhost:8000",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_LLM_MODEL": "llama3"
+      },
+      "justMyCode": false
+    },
+    {
+      "name": "Agents: Orchestrator (debugpy)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/knowledge-graph-agents/orchestration/graph.py",
+      "cwd": "${workspaceFolder}/knowledge-graph-agents",
+      "env": {
+        "KG_API_URL": "http://localhost:8000",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_LLM_MODEL": "llama3"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: API + UI",
+      "configurations": ["API: FastAPI (debugpy)", "UI: Next.js (Server)"],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack: API + UI + MCP",
+      "configurations": ["API: FastAPI (debugpy)", "UI: Next.js (Server)", "MCP: Server (debugpy)"],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack: API + UI + Agents",
+      "configurations": ["API: FastAPI (debugpy)", "UI: Next.js (Server)", "Agents: API (debugpy)"],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack: All Services",
+      "configurations": [
+        "API: FastAPI (debugpy)",
+        "UI: Next.js (Server)",
+        "MCP: Server (debugpy)",
+        "Agents: API (debugpy)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

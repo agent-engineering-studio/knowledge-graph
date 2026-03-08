@@ -64,6 +64,27 @@ services:
       timeout: 10s
       retries: 3
 
+  # ── Agents (Multi-Agent Orchestration) ─────────────────────────────
+  agents:
+    build:
+      context: ./knowledge-graph-agents
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8001"
+    environment:
+      - KG_API_URL=http://api:8000
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_LLM_MODEL=${OLLAMA_LLM_MODEL:-llama3}
+      - KG_API_TIMEOUT=60
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/agents/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # ── Neo4j (Graph DB) ────────────────────────────────────────────────
   neo4j:
     image: neo4j:5.18
@@ -108,14 +129,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-    # Per GPU NVIDIA, decommenta:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    deploy:
+       resources:
+         reservations:
+           devices:
+             - driver: nvidia
+               count: all
+               capabilities: [gpu]
 
 volumes:
   neo4j_data:

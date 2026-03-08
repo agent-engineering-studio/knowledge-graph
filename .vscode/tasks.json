@@ -1,0 +1,125 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Docker Compose Up",
+      "type": "shell",
+      "command": "docker compose up --build -d",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker Compose Down",
+      "type": "shell",
+      "command": "docker compose down",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker Compose Up (Dev)",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "API: Dev Server",
+      "type": "shell",
+      "command": "cd knowledge-graph-api && uvicorn api.main:app --reload --port 8000",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "UI: Dev Server",
+      "type": "shell",
+      "command": "cd knowledge-graph-ui && npm run dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "API: Run Tests",
+      "type": "shell",
+      "command": "cd knowledge-graph-api && pytest tests/ -v",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "API: Lint",
+      "type": "shell",
+      "command": "cd knowledge-graph-api && ruff check .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Pull Ollama Models",
+      "type": "shell",
+      "command": "docker compose exec ollama ollama pull llama3 && docker compose exec ollama ollama pull nomic-embed-text",
+      "problemMatcher": []
+    },
+    {
+      "label": "MCP: Install",
+      "type": "shell",
+      "command": "cd knowledge-graph-mcp && pip install -e .",
+      "problemMatcher": []
+    },
+    {
+      "label": "MCP: Run Tests",
+      "type": "shell",
+      "command": "cd knowledge-graph-mcp && pytest tests/ -v",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "MCP: Inspector",
+      "type": "shell",
+      "command": "cd knowledge-graph-mcp/src && npx @modelcontextprotocol/inspector python -m kg_mcp.server",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Agents: Install",
+      "type": "shell",
+      "command": "cd knowledge-graph-agents && pip install -r requirements.txt",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agents: Dev Server",
+      "type": "shell",
+      "command": "cd knowledge-graph-agents && uvicorn api.agent_api:app --reload --port 8001",
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [{ "regexp": ".", "file": 1, "location": 2, "message": 3 }],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".*Started.*",
+            "endsPattern": ".*Application startup complete.*"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Agents: Run Tests",
+      "type": "shell",
+      "command": "cd knowledge-graph-agents && pytest tests/ -v",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agents: Lint",
+      "type": "shell",
+      "command": "cd knowledge-graph-agents && ruff check .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agents: Health Check",
+      "type": "shell",
+      "command": "curl -s http://localhost:8001/agents/health | python -m json.tool",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agents: Run Example",
+      "type": "shell",
+      "command": "curl -s -X POST http://localhost:8001/agents/run -H \"Content-Type: application/json\" -d \"{\\\"request\\\": \\\"cosa sai su Neo4j?\\\", \\\"thread_id\\\": \\\"default\\\"}\" | python -m json.tool",
+      "problemMatcher": []
+    }
+  ]
+}
