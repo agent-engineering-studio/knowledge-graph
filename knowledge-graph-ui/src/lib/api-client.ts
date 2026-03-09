@@ -56,6 +56,7 @@ export interface RAGResponse {
   sources: Source[];
   nodes_used: string[];
   edges_used: string[];
+  graph_context: string;
   query_intent: string;
   processing_time_ms: number;
 }

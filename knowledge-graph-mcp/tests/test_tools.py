@@ -20,6 +20,7 @@ def _mock_client():
             "sources": [],
             "nodes_used": [],
             "edges_used": [],
+            "graph_context": "### Nodes\nNone\n\n### Relationships\nNone",
             "query_intent": "general",
             "processing_time_ms": 100.0,
         })

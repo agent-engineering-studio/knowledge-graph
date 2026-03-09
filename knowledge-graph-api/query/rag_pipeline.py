@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from collections.abc import AsyncGenerator
@@ -43,20 +42,9 @@ class RAGResponse(BaseModel):
     sources: list[SourceReference]
     nodes_used: list[str]
     edges_used: list[str]
+    graph_context: str
     query_intent: str
     processing_time_ms: float
-
-
-class RetrievalResult(BaseModel):
-    """Retrieval-only result: context ready for LLM generation (no LLM call)."""
-
-    context_message: str
-    sources: list[SourceReference]
-    nodes_used: list[str]
-    edges_used: list[str]
-    query_intent: str
-    processing_time_ms: float
-    has_documents: bool
 
 
 # Keywords used for fast (no-LLM) intent classification
@@ -72,24 +60,27 @@ _ENTITY_KEYWORDS = {
 }
 
 _RAG_PROMPT_HEADER = """\
-You are a document data extractor. Extract information ONLY from the \
-<documents> section below. Follow this exact process:
+You are a document data extractor. You MUST follow these four steps exactly.
 
-STEP 1 — SCAN: Read every document section inside <documents>.
-STEP 2 — FIND: Identify all passages that contain values or facts \
-relevant to the question.
-STEP 3 — LIST: For each relevant passage write one line: \
-"[document_name]: [exact_value_or_quote]"
-STEP 4 — ANSWER: Give a direct answer based ONLY on the lines you \
-wrote in STEP 3.
+STEP 1 — SCAN: Read every passage inside the Detailed Information section.
+STEP 2 — GRAPH: Read every node and relationship in the Knowledge Graph Structure section.
+STEP 3 — LIST: For EVERY passage or graph entry that is relevant to the question, \
+write one line in this exact format:
+  [source_name]: <exact quote or value from the source>
+If nothing is relevant, write: [NO RELEVANT DATA FOUND]
+STEP 4 — ANSWER: Write your final answer using ONLY the lines from STEP 3. \
+Do not add any information that is not present in those lines.
 
-FORBIDDEN:
-- Do NOT use training knowledge or external medical context.
-- Do NOT invent, estimate, or add values not found in STEP 2.
-- If STEP 2 finds nothing, respond with EXACTLY: \
+RULES (strictly enforced):
+- You MUST complete STEP 3 before writing the final answer.
+- Your answer MUST be derived ONLY from STEP 3 lines. Zero exceptions.
+- Do NOT use training knowledge, medical knowledge, or any external information.
+- Do NOT explain, interpret, or expand beyond what is literally written in the sources.
+- If STEP 3 produced [NO RELEVANT DATA FOUND], your answer MUST be exactly: \
 "I documenti forniti non contengono informazioni su questo argomento." \
-(Italian) or "The provided documents do not contain information about \
-this topic." (English).
+(if the question is in Italian) or \
+"The provided documents do not contain information about this topic." \
+(if the question is in English).
 
 Answer in the same language as the question.
 
@@ -107,6 +98,85 @@ def _no_docs_message(query: str) -> str:
     if any(w in q for w in ("cosa", "che", "come", "quale", "quanto", "chi", "dove", "quando", "dammi", "dimmi")):
         return _NO_DOCS_REPLY["it"]
     return _NO_DOCS_REPLY["en"]
+
+
+def _format_node(props: dict) -> str:
+    """Format a graph node as a human-readable string.
+
+    Example output: ``Aspirin [Medication] - analgesic and antipyretic drug``
+    """
+    name = props.get("name") or props.get("id", "Unknown")
+    node_type = props.get("node_type", "")
+    description = props.get("description", "")
+    line = name
+    if node_type:
+        line += f" [{node_type}]"
+    if description:
+        line += f" - {description}"
+    return line
+
+
+def _format_edge(edge: dict, node_map: dict[str, str]) -> str:
+    """Format a graph edge as a human-readable triple.
+
+    Example output: ``Aspirin --[TREATS]--> Headache``
+    """
+    src = node_map.get(edge.get("source", ""), edge.get("source", "?"))
+    tgt = node_map.get(edge.get("target", ""), edge.get("target", "?"))
+    rel = edge.get("type", "RELATES_TO")
+    props = edge.get("props") or {}
+    weight = props.get("weight")
+    confidence = props.get("confidence")
+    extra = ""
+    if weight is not None or confidence is not None:
+        parts = []
+        if weight is not None:
+            parts.append(f"w:{weight}")
+        if confidence is not None:
+            parts.append(f"c:{confidence}")
+        extra = f" ({', '.join(parts)})"
+    return f"{src} --[{rel}]--> {tgt}{extra}"
+
+
+def _build_graph_strings(graph_data: dict) -> tuple[str, str, list[str], list[str]]:
+    """Build human-readable strings from raw graph traversal data.
+
+    Args:
+        graph_data: Dict with ``nodes`` (list of neighbor dicts) and
+            ``edges`` (list of relation dicts).
+
+    Returns:
+        Tuple of ``(nodes_str, edges_str, nodes_list, edges_list)`` where
+        ``*_str`` are newline-joined and ready for the prompt, and ``*_list``
+        are the individual human-readable strings.
+    """
+    # Build id→name lookup from all retrieved neighbors
+    node_map: dict[str, str] = {}
+    for item in graph_data["nodes"]:
+        neighbor = item["neighbor"]
+        nid = neighbor.get("id", "")
+        name = neighbor.get("name") or nid
+        if nid:
+            node_map[nid] = name
+
+    # Format nodes (deduplicated by id)
+    seen: set[str] = set()
+    nodes_list: list[str] = []
+    for item in graph_data["nodes"]:
+        neighbor = item["neighbor"]
+        nid = neighbor.get("id", "")
+        if nid in seen:
+            continue
+        seen.add(nid)
+        nodes_list.append(_format_node(neighbor))
+
+    nodes_str = "\n".join(nodes_list) if nodes_list else "None"
+
+    # Format edges
+    edges_list = [_format_edge(e, node_map) for e in graph_data["edges"]]
+    edges_str = "\n".join(edges_list) if edges_list else "None"
+
+    return nodes_str, edges_str, nodes_list, edges_list
 
 
 class GraphRAGPipeline:
@@ -169,13 +239,11 @@ class GraphRAGPipeline:
 
         # 3 — Graph enrichment from chunk node_ids (bidirectional reference)
         t3 = time.perf_counter()
-        # Collect unique node_ids from all retrieved chunks
         node_ids: list[str] = list(
             dict.fromkeys(nid for d in docs for nid in (d.node_ids or []))
         )
 
         # For entity/relation queries also search Neo4j by name as fallback
-        # (covers docs ingested before node_ids were tracked)
         if intent in ("entity_query", "relation_query") and not node_ids:
             entity_nodes = await self.traverser.find_entities(user_query, thread_id)
             node_ids = [n.id for n in entity_nodes]
@@ -190,7 +258,18 @@ class GraphRAGPipeline:
             ms=round((time.perf_counter() - t3) * 1000, 1),
         )
 
-        data_text = "\n\n---\n\n".join(d.text for d in docs)
+        nodes_str, edges_str, nodes_list, edges_list = _build_graph_strings(graph_data)
+        graph_context = (
+            "### Nodes\n" + nodes_str + "\n\n### Relationships\n" + edges_str
+        )
+
+        # Build labelled document sections
+        doc_sections = []
+        for d in docs:
+            label = os.path.basename(d.name) if d.name else d.id
+            doc_sections.append(f"[{label}]\n{d.text}")
+        data_text = "\n\n---\n\n".join(doc_sections)
+
         sources = [
             SourceReference(
                 doc_id=d.id,
@@ -201,8 +280,6 @@ class GraphRAGPipeline:
             )
             for d in docs
         ]
-        nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
-        edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
 
         # 4 — Short-circuit: no documents retrieved → skip LLM entirely
         if not docs:
@@ -210,18 +287,20 @@ class GraphRAGPipeline:
             return RAGResponse(
                 answer=_no_docs_message(user_query),
                 sources=[],
-                nodes_used=[],
-                edges_used=[],
+                nodes_used=nodes_list,
+                edges_used=edges_list,
+                graph_context=graph_context,
                 query_intent=intent,
                 processing_time_ms=round(elapsed_ms, 1),
             )
 
-        # 5 — Context assembly (string concatenation avoids KeyError on '{' in doc text)
+        # 5 — Context assembly
         system_message = (
             _RAG_PROMPT_HEADER
-            + "<documents>\n" + data_text + "\n</documents>"
-            + "\n\n<graph_nodes>\n" + nodes_str + "\n</graph_nodes>"
-            + "\n\n<graph_edges>\n" + edges_str + "\n</graph_edges>"
+            + "## Detailed Information\n"
+            + data_text
+            + "\n\n## Knowledge Graph Structure\n"
+            + graph_context
         )
 
         # 6 — LLM generation
@@ -234,96 +313,11 @@ class GraphRAGPipeline:
         return RAGResponse(
             answer=answer,
             sources=sources,
-            nodes_used=[n.get("neighbor", {}).get("id", "") for n in graph_data["nodes"]],
-            edges_used=[str(e) for e in graph_data["edges"]],
+            nodes_used=nodes_list,
+            edges_used=edges_list,
+            graph_context=graph_context,
             query_intent=intent,
             processing_time_ms=round(elapsed_ms, 1),
-        )
-
-    async def retrieve(
-        self,
-        user_query: str,
-        thread_id: str,
-        options: QueryOptions | None = None,
-    ) -> RetrievalResult:
-        """Retrieve context (vector + graph) WITHOUT calling the LLM.
-
-        Returns a ``RetrievalResult`` with ``context_message`` (the assembled
-        system prompt ready for any LLM) plus structured metadata.
-        """
-        options = options or QueryOptions()
-        start = time.perf_counter()
-
-        # 1 — Intent
-        intent = self._classify_intent(user_query)
-
-        # 2 — Hybrid retrieval
-        vector_task = self.searcher.search(user_query, top_k=options.top_k, namespace=thread_id)
-        keyword_task = self.searcher.keyword_search(user_query, namespace=thread_id, top_k=5)
-        vector_docs, keyword_docs = await asyncio.gather(vector_task, keyword_task)
-
-        seen_ids: set[str] = set()
-        docs: list = []
-        for d in keyword_docs:
-            if d.id not in seen_ids:
-                docs.append(d)
-                seen_ids.add(d.id)
-        for d in vector_docs:
-            if d.id not in seen_ids:
-                docs.append(d)
-                seen_ids.add(d.id)
-
-        # 3 — Graph enrichment
-        node_ids: list[str] = list(
-            dict.fromkeys(nid for d in docs for nid in (d.node_ids or []))
-        )
-        if intent in ("entity_query", "relation_query") and not node_ids:
-            entity_nodes = await self.traverser.find_entities(user_query, thread_id)
-            node_ids = [n.id for n in entity_nodes]
-
-        graph_data = await self.traverser.enrich(node_ids, max_hops=options.max_hops)
-
-        # 4 — Assemble context message (each chunk labelled by document name)
-        if docs:
-            doc_sections = []
-            for d in docs:
-                label = os.path.basename(d.name) if d.name else d.id
-                doc_sections.append(f"[Document: {label}]\n{d.text}")
-            data_text = "\n\n---\n\n".join(doc_sections)
-        else:
-            data_text = ""
-
-        nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
-        edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
-
-        # Raw reference data — no LLM instructions here.
-        # The caller (agent) is responsible for all prompting.
-        context_message = (
-            "<documents>\n" + data_text + "\n</documents>"
-            + "\n\n<graph_nodes>\n" + nodes_str + "\n</graph_nodes>"
-            + "\n\n<graph_edges>\n" + edges_str + "\n</graph_edges>"
-        )
-
-        sources = [
-            SourceReference(
-                doc_id=d.id,
-                text_preview=d.text[:200],
-                page_number=d.page_number,
-                total_pages=d.total_pages if d.total_pages else None,
-                document_name=os.path.basename(d.name) if d.name else None,
-            )
-            for d in docs
-        ]
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        return RetrievalResult(
-            context_message=context_message,
-            sources=sources,
-            nodes_used=[n.get("neighbor", {}).get("id", "") for n in graph_data["nodes"]],
-            edges_used=[str(e) for e in graph_data["edges"]],
-            query_intent=intent,
-            processing_time_ms=round(elapsed_ms, 1),
-            has_documents=bool(docs),
         )
 
     # ── Private helpers ──────────────────────────────────────────────
@@ -337,14 +331,18 @@ class GraphRAGPipeline:
             return "entity_query"
         return "document_query"
 
-    async def _generate(self, system_message: str, user_query: str) -> str:
-        """Non-streaming LLM generation."""
-        # Explicit extraction instruction prepended to force grounding in local LLMs
-        extraction_prompt = (
-            "Follow STEP 1→2→3→4 from the instructions. "
-            "Find the answer in <documents> then respond.\n\n"
+    @staticmethod
+    def _grounded_user_message(user_query: str) -> str:
+        """Wrap the user query with a step-reminder to prevent hallucination."""
+        return (
+            "Follow STEP 1 → STEP 2 → STEP 3 → STEP 4 from the instructions above. "
+            "Complete STEP 3 (the list of exact quotes) before writing any answer. "
+            "Use ONLY what you listed in STEP 3.\n\n"
             f"Question: {user_query}"
         )
+
+    async def _generate(self, system_message: str, user_query: str) -> str:
+        """Non-streaming LLM generation."""
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{settings.OLLAMA_BASE_URL}/api/chat",
@@ -352,7 +350,7 @@ class GraphRAGPipeline:
                     "model": settings.OLLAMA_LLM_MODEL,
                     "messages": [
                         {"role": "system", "content": system_message},
-                        {"role": "user", "content": extraction_prompt},
+                        {"role": "user", "content": self._grounded_user_message(user_query)},
                     ],
                     "stream": False,
                 },
@@ -372,6 +370,7 @@ class GraphRAGPipeline:
         self, system_message: str, user_query: str
     ) -> AsyncGenerator[str, None]:
         """Streaming LLM generation via SSE-compatible chunks."""
+        import json
         logger.info("llm_stream_start", model=settings.OLLAMA_LLM_MODEL)
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
@@ -381,12 +380,17 @@ class GraphRAGPipeline:
                     "model": settings.OLLAMA_LLM_MODEL,
                     "messages": [
                         {"role": "system", "content": system_message},
-                        {"role": "user", "content": user_query},
+                        {"role": "user", "content": self._grounded_user_message(user_query)},
                     ],
                     "stream": True,
                 },
             ) as response:
                 logger.info("llm_stream_connected", status=response.status_code)
+                if response.status_code == 404:
+                    raise RuntimeError(
+                        f"Ollama model '{settings.OLLAMA_LLM_MODEL}' not found. "
+                        f"Run: ollama pull {settings.OLLAMA_LLM_MODEL}"
+                    )
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line:

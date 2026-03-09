@@ -42,28 +42,6 @@ async def kg_query(
     return _fmt(result)
 
 
-async def kg_retrieve_context(
-    query: str,
-    thread_id: str,
-    top_k: int = 10,
-    max_hops: int = 2,
-) -> str:
-    """Retrieve context from the knowledge graph WITHOUT calling the LLM.
-
-    Args:
-        query: Natural language question.
-        thread_id: Namespace/partition of the data to search.
-        top_k: Number of vector search results (default 10).
-        max_hops: Max graph traversal depth (default 2).
-
-    Returns:
-        RetrievalResult with context_message (assembled system prompt),
-        sources, nodes, edges, query_intent, and has_documents flag.
-    """
-    result = await client.retrieve_context(query, thread_id, top_k, max_hops)
-    return _fmt(result)
-
-
 async def kg_ingest(
     file_path: str,
     thread_id: str,

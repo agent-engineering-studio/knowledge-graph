@@ -54,34 +54,10 @@ async def kg_query(
         max_hops: Maximum graph traversal depth for enrichment (default 2).
 
     Returns JSON with: answer, sources (doc_id + text_preview + score),
-    nodes_used, edges_used, query_intent, processing_time_ms.
+    nodes_used (human-readable node names + types), edges_used (source --[REL]--> target),
+    graph_context (formatted nodes + relationships), query_intent, processing_time_ms.
     """
     return await tools.kg_query(query, thread_id, top_k, max_hops)
-
-
-@mcp.tool()
-async def kg_retrieve_context(
-    query: str,
-    thread_id: str,
-    top_k: int = 10,
-    max_hops: int = 2,
-) -> str:
-    """Retrieve context (documents + graph) WITHOUT calling the LLM.
-
-    Use this instead of kg_query when you want to control LLM generation yourself.
-    Returns the assembled system prompt (context_message) plus structured metadata
-    so the caller can run its own grounded LLM call.
-
-    Args:
-        query: Natural language question about the knowledge graph contents.
-        thread_id: Namespace/partition of the data to search (e.g. "default").
-        top_k: Number of vector search results to retrieve (default 10).
-        max_hops: Maximum graph traversal depth for enrichment (default 2).
-
-    Returns JSON with: context_message (system prompt string), sources,
-    nodes_used, edges_used, query_intent, processing_time_ms, has_documents.
-    """
-    return await tools.kg_retrieve_context(query, thread_id, top_k, max_hops)
 
 
 @mcp.tool()
