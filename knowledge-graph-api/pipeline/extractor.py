@@ -123,7 +123,8 @@ class EntityExtractor:
 
     def __init__(self) -> None:
         self.base_url = settings.OLLAMA_BASE_URL
-        self.model = settings.OLLAMA_LLM_MODEL
+        # Use dedicated extraction model if configured, otherwise fall back to LLM model.
+        self.model = settings.OLLAMA_EXTRACTION_MODEL or settings.OLLAMA_LLM_MODEL
 
     async def extract(self, chunk: str, context: str = "") -> ExtractionResult:
         """Extract entities and relations from a text chunk.

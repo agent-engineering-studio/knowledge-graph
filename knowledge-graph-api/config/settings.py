@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # Ollama (Inference API locale)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_LLM_MODEL: str = "llama3"
+    # Dedicated model for entity/relation extraction during ingestion.
+    # Smaller/faster models (e.g. qwen2.5:7b) work well here because the
+    # task is structured JSON output guided by few-shot examples.
+    # Falls back to OLLAMA_LLM_MODEL if not set.
+    OLLAMA_EXTRACTION_MODEL: str = ""
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
 
     # App
