@@ -59,28 +59,19 @@ _ENTITY_KEYWORDS = {
     "organization", "definisci", "define", "tell me about",
 }
 
-RAG_SYSTEM_PROMPT = """\
-You are a document retrieval assistant. You MUST answer using ONLY the text \
-from the document chunks provided below. This is MANDATORY.
+_RAG_PROMPT_HEADER = """\
+You are a document Q&A system. Your ONLY source of information is the content \
+inside the <documents> tags below. This is MANDATORY.
 
-STRICT RULES — follow all of them without exception:
-1. Use ONLY the information found in the document chunks below.
-2. NEVER use your training data, general knowledge, or external information.
-3. If the answer is NOT in the document chunks, respond with EXACTLY this \
-sentence (translated to the user's language): \
-"The provided documents do not contain information about this topic."
-4. Do NOT add context, caveats, or extra knowledge beyond what is in the chunks.
-5. Quote or paraphrase the exact values/phrases from the chunks.
-6. Answer in the same language as the user's question.
+STRICT RULES:
+1. Answer ONLY using information found inside <documents>.
+2. NEVER use your training knowledge or external information.
+3. If the answer is NOT inside <documents>, respond with EXACTLY: \
+"I documenti forniti non contengono informazioni su questo argomento." (Italian) \
+or "The provided documents do not contain information about this topic." (English).
+4. Quote the exact values and numbers you find in the documents.
+5. Answer in the same language as the user's question.
 
-## Document chunks (your ONLY allowed information source)
-{data_text}
-
-## Graph nodes
-{nodes_str}
-
-## Graph edges
-{edges_str}
 """
 
 _NO_DOCS_REPLY = {
@@ -204,11 +195,12 @@ class GraphRAGPipeline:
                 processing_time_ms=round(elapsed_ms, 1),
             )
 
-        # 5 — Context assembly
-        system_message = RAG_SYSTEM_PROMPT.format(
-            data_text=data_text,
-            nodes_str=nodes_str,
-            edges_str=edges_str,
+        # 5 — Context assembly (string concatenation avoids KeyError on '{' in doc text)
+        system_message = (
+            _RAG_PROMPT_HEADER
+            + "<documents>\n" + data_text + "\n</documents>"
+            + "\n\n<graph_nodes>\n" + nodes_str + "\n</graph_nodes>"
+            + "\n\n<graph_edges>\n" + edges_str + "\n</graph_edges>"
         )
 
         # 6 — LLM generation

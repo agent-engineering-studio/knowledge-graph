@@ -105,9 +105,21 @@ async def analyst_node(state: AgentState) -> AgentState:
 
     context["analyst_result"] = result
 
+    answer = result.get("answer", "Nessuna risposta trovata.")
+    sources = result.get("sources", [])
+
+    # Append source references so the user can verify retrieval
+    if sources:
+        source_lines = []
+        for s in sources[:5]:  # cap at 5
+            name = s.get("document_name") or s.get("doc_id", "")
+            preview = s.get("text_preview", "")[:120].replace("\n", " ")
+            source_lines.append(f"- **{name}**: _{preview}…_")
+        answer = answer + "\n\n**Fonti recuperate:**\n" + "\n".join(source_lines)
+
     return {
         **state,
         "context": context,
-        "final_output": result.get("answer", "Nessuna risposta trovata."),
+        "final_output": answer,
         "error": None,
     }
