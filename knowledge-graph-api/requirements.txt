@@ -10,6 +10,7 @@ redis[hiredis]>=5.0.0
 # FastAPI
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
 
 # Pydantic
 pydantic>=2.7.0

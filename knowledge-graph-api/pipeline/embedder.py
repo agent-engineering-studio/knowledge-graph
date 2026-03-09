@@ -35,13 +35,40 @@ class Embedder:
         reraise=True,
     )
     async def _embed_single(self, text: str) -> list[float]:
-        """Call Ollama embeddings endpoint for a single text."""
+        """Call Ollama embed endpoint for a single text.
+
+        Supports both the current API (POST /api/embed, field "input") and the
+        legacy API (POST /api/embeddings, field "prompt") that was removed in
+        recent Ollama releases.
+        """
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # Try the current Ollama API first (>= 0.1.30)
             response = await client.post(
-                f"{self.base_url}/api/embeddings",
-                json={"model": self.model, "prompt": text},
+                f"{self.base_url}/api/embed",
+                json={"model": self.model, "input": text},
             )
-            response.raise_for_status()
-            data = response.json()
-            logger.debug("embedding_generated", model=self.model, dim=len(data["embedding"]))
-            return data["embedding"]
+            if response.status_code == 404:
+                body = response.json() if response.content else {}
+                error_msg = body.get("error", "")
+                if "not found" in error_msg.lower() and "model" in error_msg.lower():
+                    # Model is not pulled — raise immediately, no point falling back
+                    raise RuntimeError(
+                        f"Ollama model '{self.model}' not found. "
+                        f"Run: ollama pull {self.model}"
+                    )
+                # Endpoint doesn't exist → fall back to legacy API (Ollama < 0.1.30)
+                response = await client.post(
+                    f"{self.base_url}/api/embeddings",
+                    json={"model": self.model, "prompt": text},
+                )
+                response.raise_for_status()
+                data = response.json()
+                vector: list[float] = data["embedding"]
+            else:
+                response.raise_for_status()
+                data = response.json()
+                # New API returns {"embeddings": [[...]], ...}
+                vector = data["embeddings"][0]
+
+            logger.debug("embedding_generated", model=self.model, dim=len(vector))
+            return vector

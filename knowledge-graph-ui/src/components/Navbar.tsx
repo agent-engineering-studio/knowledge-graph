@@ -7,6 +7,8 @@ const links = [
   { href: "/", label: "Dashboard" },
   { href: "/query", label: "Search / Query" },
   { href: "/graph", label: "Graph View" },
+  { href: "/ingest", label: "Ingest" },
+  { href: "/chat", label: "Agent Chat" },
 ];
 
 export function Navbar() {

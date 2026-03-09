@@ -9,6 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from kg_mcp.config import settings
 from kg_mcp import tools
 
+from mcp.server.transport_security import TransportSecuritySettings
+
 mcp = FastMCP(
     "Knowledge Graph Lab",
     instructions=(
@@ -17,6 +19,10 @@ mcp = FastMCP(
         "Use kg_query for RAG questions, kg_ingest to add documents, "
         "kg_cypher for direct graph queries, and kg_traverse to explore relationships."
     ),
+    host=settings.MCP_HOST,
+    port=settings.MCP_PORT,
+    # Disable DNS rebinding protection so the server can bind to 0.0.0.0 in Docker
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
@@ -172,7 +178,7 @@ def main() -> None:
     """
     transport = settings.MCP_TRANSPORT
     if transport == "sse":
-        mcp.run(transport="sse", host=settings.MCP_HOST, port=settings.MCP_PORT)
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
 

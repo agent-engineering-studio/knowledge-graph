@@ -1,18 +1,22 @@
 # ── Profiles ──────────────────────────────────────────────────────────────────
 #
-#   dev   → infrastructure + UI clients (neo4j + redis + ollama + redisinsight)
+#   dev   → infrastructure + dev tools (neo4j + redis + redisinsight)
 #   prod  → full production stack (infra + api + ui + mcp + agents)
+#   gpu   → Ollama with NVIDIA GPU support (use alongside dev or prod)
+#   cpu   → Ollama CPU-only, no GPU required (use alongside dev or prod)
 #
 # Quick reference (see Makefile):
-#   docker compose --profile dev  up -d   # infra + dev tools
-#   docker compose --profile prod up -d   # full production stack
+#   docker compose --profile dev  up -d              # infra only
+#   docker compose --profile prod up -d              # full stack (Ollama on host)
+#   docker compose --profile prod --profile gpu up   # full stack + Ollama GPU
+#   docker compose --profile prod --profile cpu up   # full stack + Ollama CPU
 #
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
-
   # ── Neo4j (Graph DB) ────────────────────────────────────────────────────────
   neo4j:
+    container_name: kg-neo4j
     profiles: [dev, prod]
     image: neo4j:5.18
     ports:
@@ -25,13 +29,23 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
+      test:
+        [
+          "CMD",
+          "cypher-shell",
+          "-u",
+          "neo4j",
+          "-p",
+          "${NEO4J_PASSWORD}",
+          "RETURN 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
 
-  # ── Redis Stack (Vector Store + RedisInsight :8001) ──────────────────────────
+  # ── Redis Stack (Vector Store) ───────────────────────────────────────────────
   redis:
+    container_name: kg-redis
     profiles: [dev, prod]
     image: redis/redis-stack:latest
     ports:
@@ -45,19 +59,28 @@ services:
       timeout: 5s
       retries: 3
 
-  # ── Ollama (LLM Inference) ───────────────────────────────────────────────────
-  ollama:
-    profiles: [dev, prod]
-    image: ollama/ollama:latest
+  # ── Ollama GPU (NVIDIA) ──────────────────────────────────────────────────────
+  # Use profile "gpu" on machines with an NVIDIA GPU.
+  # If Ollama is already running on the host, omit both ollama profiles and
+  # set OLLAMA_BASE_URL=http://host.docker.internal:11434 in your .env instead.
+  ollama-gpu:
+    container_name: kg-ollama-gpu
+    profiles: [gpu]
+    build:
+      context: ./infra/ollama
+      dockerfile: Dockerfile
+    environment:
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text llama3}
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 120s
     deploy:
       resources:
         reservations:
@@ -66,21 +89,45 @@ services:
               count: all
               capabilities: [gpu]
 
+  # ── Ollama CPU-only (no GPU required) ────────────────────────────────────────
+  # Use profile "cpu" on machines without NVIDIA GPU.
+  ollama-cpu:
+    container_name: kg-ollama-cpu
+    profiles: [cpu]
+    build:
+      context: ./infra/ollama
+      dockerfile: Dockerfile
+    environment:
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text llama3}
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
   # ── API (FastAPI / Python) ───────────────────────────────────────────────────
   api:
+    container_name: kg-api
     profiles: [prod]
     build:
       context: ./knowledge-graph-api
-      dockerfile: infra/docker/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    # OLLAMA_BASE_URL is read from .env:
+    #   default prod  → http://host.docker.internal:11434  (Ollama on host)
+    #   profile gpu   → http://ollama-gpu:11434
+    #   profile cpu   → http://ollama-cpu:11434
     env_file: .env
     depends_on:
       neo4j:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -90,6 +137,7 @@ services:
 
   # ── UI (Next.js) ─────────────────────────────────────────────────────────────
   ui:
+    container_name: kg-ui
     profiles: [prod]
     build:
       context: ./knowledge-graph-ui
@@ -113,6 +161,7 @@ services:
 
   # ── MCP Server ───────────────────────────────────────────────────────────────
   mcp:
+    container_name: kg-mcp
     profiles: [prod]
     build:
       context: ./knowledge-graph-mcp
@@ -135,6 +184,7 @@ services:
 
   # ── Agents (Multi-Agent Orchestration) ──────────────────────────────────────
   agents:
+    container_name: kg-agents
     profiles: [prod]
     build:
       context: ./knowledge-graph-agents
@@ -143,7 +193,7 @@ services:
       - "8002:8001"
     environment:
       - KG_API_URL=http://api:8000
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_LLM_MODEL=${OLLAMA_LLM_MODEL:-llama3}
       - KG_API_TIMEOUT=60
     depends_on:
@@ -155,12 +205,13 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── RedisInsight standalone (dev only) ──────────────────────────────────────
+  # ── RedisInsight ─────────────────────────────────────────────────────────────
   # Web UI for browsing Redis keys, data structures and vectors.
   # Access: http://localhost:5540
   # First-time setup: add connection → host: redis  port: 6379
   redisinsight:
-    profiles: [dev]
+    container_name: kg-redisinsight
+    profiles: [dev, prod]
     image: redis/redisinsight:latest
     ports:
       - "5540:5540"
