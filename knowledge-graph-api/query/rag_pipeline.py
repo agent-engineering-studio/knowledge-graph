@@ -296,9 +296,10 @@ class GraphRAGPipeline:
         nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
         edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
 
+        # Raw reference data — no LLM instructions here.
+        # The caller (agent) is responsible for all prompting.
         context_message = (
-            _RAG_PROMPT_HEADER
-            + "<documents>\n" + data_text + "\n</documents>"
+            "<documents>\n" + data_text + "\n</documents>"
             + "\n\n<graph_nodes>\n" + nodes_str + "\n</graph_nodes>"
             + "\n\n<graph_edges>\n" + edges_str + "\n</graph_edges>"
         )

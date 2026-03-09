@@ -27,12 +27,39 @@ def _no_docs_message(query: str) -> str:
     return _NO_DOCS_REPLY["en"]
 
 
+_SYSTEM = (
+    "You are a precise data extractor. "
+    "Read the reference data provided by the user and answer questions using ONLY the values "
+    "found there. Never use general knowledge or external information."
+)
+
+_TASK_TEMPLATE = """\
+{reference_data}
+
+---
+TASK: Answer the question below using ONLY what is written in the <documents> above.
+
+Rules:
+1. Copy every relevant value verbatim from the documents (format: "[filename]: value").
+2. After listing them, give a direct answer.
+3. If no relevant value is in <documents>, reply exactly:
+   "I documenti forniti non contengono informazioni su questo argomento."
+
+Question: {question}
+
+Values found in <documents>:"""
+
+
 async def _generate(context_message: str, user_query: str) -> str:
-    """Call Ollama with the retrieval context and return the grounded answer."""
-    extraction_prompt = (
-        "Follow STEP 1→2→3→4 from the instructions. "
-        "Find the answer in <documents> then respond.\n\n"
-        f"Question: {user_query}"
+    """Call Ollama with the raw reference data and return the grounded answer.
+
+    context_message contains ONLY raw data (documents + graph nodes/edges).
+    All instructions live here in the agent, not in the API layer.
+    temperature=0 prevents the model from drifting into training-data answers.
+    """
+    user_message = _TASK_TEMPLATE.format(
+        reference_data=context_message,
+        question=user_query,
     )
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
@@ -40,10 +67,11 @@ async def _generate(context_message: str, user_query: str) -> str:
             json={
                 "model": OLLAMA_LLM_MODEL,
                 "messages": [
-                    {"role": "system", "content": context_message},
-                    {"role": "user", "content": extraction_prompt},
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": user_message},
                 ],
                 "stream": False,
+                "options": {"temperature": 0, "num_predict": 1024},
             },
         )
         if response.status_code == 404:
