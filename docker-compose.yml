@@ -70,7 +70,7 @@ services:
       context: ./infra/ollama
       dockerfile: Dockerfile
     environment:
-      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text llama3}
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text qwen2.5:7b}
     ports:
       - "127.0.0.1:11434:11434"
     volumes:
@@ -98,7 +98,7 @@ services:
       context: ./infra/ollama
       dockerfile: Dockerfile
     environment:
-      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text llama3}
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-nomic-embed-text qwen2.5:7b}
     ports:
       - "127.0.0.1:11434:11434"
     volumes:

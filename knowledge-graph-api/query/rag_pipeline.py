@@ -252,6 +252,14 @@ class GraphRAGPipeline:
                     "stream": False,
                 },
             )
+            if response.status_code == 404:
+                body = response.json() if response.content else {}
+                err = body.get("error", "")
+                if "not found" in err.lower():
+                    raise RuntimeError(
+                        f"Ollama model '{settings.OLLAMA_LLM_MODEL}' not found. "
+                        f"Run: ollama pull {settings.OLLAMA_LLM_MODEL}"
+                    )
             response.raise_for_status()
             return response.json()["message"]["content"]
 
