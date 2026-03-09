@@ -47,15 +47,17 @@ class RAGResponse(BaseModel):
     processing_time_ms: float
 
 
-INTENT_PROMPT = """\
-Classify the user query into exactly one of these intents:
-- document_query: searching for information within documents
-- entity_query: looking for a specific entity (person, org, tech, etc.)
-- relation_query: asking about relationships between entities
-- general: general question not specific to documents or entities
-
-Respond with ONLY the intent label, nothing else.
-"""
+# Keywords used for fast (no-LLM) intent classification
+_RELATION_KEYWORDS = {
+    "relazione", "collegamento", "relation", "relationship", "connected",
+    "connesso", "connessi", "link", "between", "tra", "dipende", "depends",
+    "influenza", "influenced", "associato", "associated",
+}
+_ENTITY_KEYWORDS = {
+    "chi è", "who is", "cos'è", "cosa è", "what is", "describe",
+    "descrivi", "entity", "entità", "persona", "person", "organizzazione",
+    "organization", "definisci", "define", "tell me about",
+}
 
 RAG_SYSTEM_PROMPT = """\
 You are a knowledge-graph-augmented assistant. Your ONLY source of information \
@@ -107,9 +109,9 @@ class GraphRAGPipeline:
         options = options or QueryOptions()
         start = time.perf_counter()
 
-        # 1 — Intent analysis
+        # 1 — Intent analysis (keyword-based, no LLM round-trip)
         t1 = time.perf_counter()
-        intent = await self._classify_intent(user_query)
+        intent = self._classify_intent(user_query)
         logger.info("query_intent", intent=intent, ms=round((time.perf_counter() - t1) * 1000, 1))
 
         # 2 — Hybrid retrieval: vector search + keyword search in parallel
@@ -200,24 +202,14 @@ class GraphRAGPipeline:
 
     # ── Private helpers ──────────────────────────────────────────────
 
-    async def _classify_intent(self, query: str) -> str:
-        """Use Ollama to classify the query intent."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{settings.OLLAMA_BASE_URL}/api/chat",
-                json={
-                    "model": settings.OLLAMA_LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": INTENT_PROMPT},
-                        {"role": "user", "content": query},
-                    ],
-                    "stream": False,
-                },
-            )
-            response.raise_for_status()
-            raw = response.json()["message"]["content"].strip().lower()
-        valid = {"document_query", "entity_query", "relation_query", "general"}
-        return raw if raw in valid else "general"
+    def _classify_intent(self, query: str) -> str:
+        """Classify query intent using fast keyword matching (no LLM round-trip)."""
+        q = query.lower()
+        if any(kw in q for kw in _RELATION_KEYWORDS):
+            return "relation_query"
+        if any(kw in q for kw in _ENTITY_KEYWORDS):
+            return "entity_query"
+        return "document_query"
 
     async def _generate(self, system_message: str, user_query: str) -> str:
         """Non-streaming LLM generation."""
