@@ -18,9 +18,7 @@ class VectorDocument(BaseModel):
     page_number: int = 0
     total_pages: int = 0
     content_hash: str | None = None
-    document_intent: str | None = None
-    document_scope: int = 5
     base_document_id: str | None = None
-    source_uri: str | None = None
     mime_type: str | None = None
+    node_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -133,9 +133,11 @@ class IngestionPipeline:
 
             # 8 — Graph ingestion
             if extraction:
+                chunk_node_ids: list[str] = []
                 for entity in extraction.entities:
                     node = GraphNode(
-                        id=entity.id,
+                        # id is auto-generated UUID; slug is the LLM key used for dedup
+                        slug=entity.id,
                         name=entity.name,
                         label=entity.type,
                         node_type=entity.type,
@@ -145,7 +147,8 @@ class IngestionPipeline:
                         description=entity.description,
                         source_chunk_ids=[doc.id],
                     )
-                    await self.graph.upsert_node(node)
+                    node_uuid = await self.graph.upsert_node(node)
+                    chunk_node_ids.append(node_uuid)
                     nodes_created += 1
 
                 for rel in extraction.relations:
@@ -160,6 +163,10 @@ class IngestionPipeline:
                     )
                     await self.graph.upsert_relation(relation)
                     edges_created += 1
+
+                # Link the chunk back to its Neo4j nodes (bidirectional reference)
+                if chunk_node_ids:
+                    await self.vector_store.update_node_ids(doc.id, chunk_node_ids)
 
                 total_entities += len(extraction.entities)
                 total_relations += len(extraction.relations)

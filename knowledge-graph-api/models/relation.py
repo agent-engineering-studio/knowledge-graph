@@ -6,9 +6,19 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 VALID_RELATION_TYPES = [
+    # Core
     "BELONGS_TO", "RELATES_TO", "CREATED_BY", "MENTIONS",
     "PART_OF", "USES", "LOCATED_IN", "OCCURRED_AT",
     "HAS_TAG", "SIMILAR_TO", "DEPENDS_ON", "REPLACED_BY",
+    # Authorship / contribution
+    "EDITED_BY", "WRITTEN_BY", "DIRECTED_BY", "PRODUCED_BY",
+    "COLLABORATED_WITH", "CONTRIBUTED_TO", "PUBLISHED_BY",
+    # Discovery / science
+    "DISCOVERED_BY", "OBSERVED_BY", "MEASURED_BY", "STUDIED_BY",
+    "NAMED_AFTER", "COMPOSED_OF", "CONTAINS",
+    # Relationships
+    "WORKS_FOR", "FOUNDED_BY", "LED_BY", "PARTICIPATED_IN",
+    "ASSOCIATED_WITH", "CONNECTED_TO", "INFLUENCED_BY",
 ]
 
 

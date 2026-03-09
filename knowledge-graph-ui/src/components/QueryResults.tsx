@@ -28,10 +28,21 @@ export function QueryResults({ result, streamedAnswer, streaming }: Props) {
               <div className="space-y-2">
                 {result.sources.map((s, i) => (
                   <div key={i} className="text-xs bg-gray-50 rounded p-2">
-                    <span className="font-medium text-gray-700">{s.doc_id}</span>
-                    {s.score != null && (
-                      <span className="ml-2 text-gray-500">score: {s.score.toFixed(3)}</span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {s.document_name && (
+                        <span className="font-medium text-gray-800">{s.document_name}</span>
+                      )}
+                      {s.page_number != null && (
+                        <span className="text-gray-500">
+                          p.{s.page_number + 1}
+                          {s.total_pages ? `/${s.total_pages}` : ""}
+                        </span>
+                      )}
+                      {s.score != null && (
+                        <span className="text-gray-400">score: {s.score.toFixed(3)}</span>
+                      )}
+                      <span className="text-gray-400 font-mono">{s.doc_id.slice(0, 8)}…</span>
+                    </div>
                     <p className="text-gray-600 mt-1">{s.text_preview}</p>
                   </div>
                 ))}

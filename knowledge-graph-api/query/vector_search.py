@@ -32,3 +32,34 @@ class VectorSearcher:
         """
         vectors = await self.embedder.embed([query])
         return await self.store.vector_search(vectors[0], top_k=top_k, namespace=namespace)
+
+    async def keyword_search(
+        self,
+        query: str,
+        namespace: str | None = None,
+        top_k: int = 5,
+    ) -> list[VectorDocument]:
+        """Full-text search on chunk content — finds exact term matches.
+
+        Args:
+            query: Free-text query; significant words are extracted.
+            namespace: Optional thread_id filter.
+            top_k: Maximum results.
+
+        Returns:
+            Chunks containing the query terms.
+        """
+        import re
+        terms = [w for w in re.sub(r"[^\w\s]", "", query.lower()).split() if len(w) > 2]
+        return await self.store.keyword_search(terms, namespace=namespace, top_k=top_k)
+
+    async def fetch_by_ids(self, doc_ids: list[str]) -> list[VectorDocument]:
+        """Fetch documents by their IDs directly from Redis.
+
+        Args:
+            doc_ids: List of document IDs.
+
+        Returns:
+            Documents found (missing IDs silently skipped).
+        """
+        return await self.store.get_by_ids(doc_ids)

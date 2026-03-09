@@ -16,6 +16,7 @@ class GraphNode(BaseModel):
     """Node entity stored in the Neo4j graph database."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
+    slug: str = ""  # LLM-generated entity key used as dedup identifier (e.g. "globuli_rossi")
     name: str
     label: str
     node_type: str

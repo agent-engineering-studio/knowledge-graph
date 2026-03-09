@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from memory.kg_memory import AgentRunRecord, get_run, list_runs, save_agent_run
@@ -22,6 +23,14 @@ app = FastAPI(
     title="Knowledge Graph Agent API",
     description="Multi-agent orchestration layer for the Knowledge Graph system",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

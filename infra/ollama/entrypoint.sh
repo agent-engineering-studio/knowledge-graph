@@ -12,10 +12,10 @@ log "Starting ollama serve..."
 ollama serve &
 SERVER_PID=$!
 
-# Wait until the API is ready
+# Wait until the API is ready using 'ollama list' (no curl dependency)
 log "Waiting for Ollama API to be ready..."
 ATTEMPTS=0
-until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do
+until ollama list > /dev/null 2>&1; do
   ATTEMPTS=$((ATTEMPTS + 1))
   if [ $ATTEMPTS -ge 60 ]; then
     log "ERROR: Ollama API did not become ready after 60 seconds. Exiting."
@@ -43,7 +43,7 @@ log "========================================="
 log "ALL MODELS READY — Ollama is serving."
 log "Loaded models:"
 ollama list 2>/dev/null | tail -n +2 | while IFS= read -r line; do
-  log "  • ${line}"
+  log "  * ${line}"
 done
 log "========================================="
 

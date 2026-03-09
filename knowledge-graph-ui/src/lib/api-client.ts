@@ -46,6 +46,9 @@ export interface Source {
   doc_id: string;
   text_preview: string;
   score: number | null;
+  page_number: number | null;
+  total_pages: number | null;
+  document_name: string | null;
 }
 
 export interface RAGResponse {
@@ -58,13 +61,12 @@ export interface RAGResponse {
 }
 
 export interface DocumentRecord {
-  id: string;
+  base_document_id: string;
   name: string;
-  thread_id: string;
-  content_hash: string;
-  mime_type: string;
-  page_number: number;
+  mime_type: string | null;
+  total_pages: number;
   created_at: string;
+  chunk_count: number;
 }
 
 // ── Agents types ───────────────────────────────────────────────────

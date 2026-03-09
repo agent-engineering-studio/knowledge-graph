@@ -32,11 +32,11 @@ export function DocumentList({ namespace, refreshTrigger }: Props) {
     fetchDocs();
   }, [fetchDocs, refreshTrigger]);
 
-  const handleDelete = useCallback(async (docId: string) => {
-    setDeleting(docId);
+  const handleDelete = useCallback(async (baseDocumentId: string) => {
+    setDeleting(baseDocumentId);
     try {
-      await deleteDocument(docId);
-      setDocs((prev) => prev.filter((d) => d.id !== docId));
+      await deleteDocument(baseDocumentId);
+      setDocs((prev) => prev.filter((d) => d.base_document_id !== baseDocumentId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
     } finally {
@@ -56,29 +56,31 @@ export function DocumentList({ namespace, refreshTrigger }: Props) {
           <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
             <th className="px-3 py-2 border-b">Name</th>
             <th className="px-3 py-2 border-b">Type</th>
-            <th className="px-3 py-2 border-b">Page</th>
+            <th className="px-3 py-2 border-b">Pages</th>
+            <th className="px-3 py-2 border-b">Chunks</th>
             <th className="px-3 py-2 border-b">Created</th>
             <th className="px-3 py-2 border-b" />
           </tr>
         </thead>
         <tbody>
           {docs.map((doc) => (
-            <tr key={doc.id} className="hover:bg-gray-50 border-b last:border-0">
-              <td className="px-3 py-2 font-medium truncate max-w-[200px]" title={doc.name}>
+            <tr key={doc.base_document_id} className="hover:bg-gray-50 border-b last:border-0">
+              <td className="px-3 py-2 font-medium truncate max-w-55" title={doc.name}>
                 {doc.name}
               </td>
               <td className="px-3 py-2 text-gray-500">{doc.mime_type || "—"}</td>
-              <td className="px-3 py-2 text-gray-500">{doc.page_number ?? "—"}</td>
+              <td className="px-3 py-2 text-gray-500">{doc.total_pages || "—"}</td>
+              <td className="px-3 py-2 text-gray-500">{doc.chunk_count}</td>
               <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                 {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "—"}
               </td>
               <td className="px-3 py-2 text-right">
                 <button
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={deleting === doc.id}
+                  onClick={() => handleDelete(doc.base_document_id)}
+                  disabled={deleting === doc.base_document_id}
                   className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
                 >
-                  {deleting === doc.id ? "Deleting…" : "Delete"}
+                  {deleting === doc.base_document_id ? "Deleting…" : "Delete"}
                 </button>
               </td>
             </tr>

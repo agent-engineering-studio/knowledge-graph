@@ -22,19 +22,20 @@ async def list_documents(namespace: str) -> dict:
     store = RedisVectorStore()
     try:
         docs = await store.list_by_namespace(namespace)
-        return {
-            "documents": [
-                {
-                    "id": d.id,
+        # Group chunks by base_document_id → one entry per unique document
+        groups: dict[str, dict] = {}
+        for d in docs:
+            key = d.base_document_id or d.id
+            if key not in groups:
+                groups[key] = {
+                    "base_document_id": key,
                     "name": d.name,
-                    "thread_id": d.thread_id,
-                    "content_hash": d.content_hash,
                     "mime_type": d.mime_type,
-                    "page_number": d.page_number,
+                    "total_pages": d.total_pages,
                     "created_at": d.created_at.isoformat(),
+                    "chunk_count": 0,
                 }
-                for d in docs
-            ]
-        }
+            groups[key]["chunk_count"] += 1
+        return {"documents": list(groups.values())}
     finally:
         await store.close()

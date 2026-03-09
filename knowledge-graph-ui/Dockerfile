@@ -1,4 +1,5 @@
 FROM node:22-alpine AS base
+RUN npm install -g npm@latest
 
 # ── Dependencies ────────────────────────────────────────────────────
 FROM base AS deps

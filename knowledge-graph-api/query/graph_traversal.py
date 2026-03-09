@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from models.graph_node import GraphNode
 from storage.neo4j_graph import Neo4jGraph
 
 
@@ -10,6 +11,18 @@ class GraphTraverser:
 
     def __init__(self) -> None:
         self.graph = Neo4jGraph()
+
+    async def find_entities(self, query: str, namespace: str) -> list[GraphNode]:
+        """Search Neo4j for nodes matching words in *query*.
+
+        Args:
+            query: Free-text query string.
+            namespace: Namespace partition.
+
+        Returns:
+            Matching graph nodes ordered by importance.
+        """
+        return await self.graph.search_nodes_fuzzy(query, namespace)
 
     async def enrich(self, node_ids: list[str], max_hops: int = 2) -> dict:
         """Traverse neighbours and fetch relations for a set of nodes.

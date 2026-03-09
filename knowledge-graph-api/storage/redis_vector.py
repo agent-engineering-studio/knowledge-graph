@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import redis.asyncio as aioredis
 from redis.commands.search.field import NumericField, TagField, TextField, VectorField
@@ -83,15 +81,16 @@ class RedisVectorStore:
         """
         q = (
             Query(f"@content_hash:{{{content_hash}}}")
-            .return_fields("$")
+            .no_content()
             .paging(0, 1)
             .dialect(2)
         )
         results = await self._client.ft(self._index_name).search(q)
         if results.total == 0:
             return None
-        raw = results.docs[0]["$"]
-        data = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+        data = await self._client.json().get(results.docs[0].id)
+        if data is None:
+            return None
         return VectorDocument.model_validate(data)
 
     async def vector_search(
@@ -116,7 +115,7 @@ class RedisVectorStore:
         q = (
             Query(f"{filter_expr}=>[KNN {top_k} @vector $vec AS __vector_score]")
             .sort_by("__vector_score")
-            .return_fields("$", "__vector_score")
+            .no_content()
             .paging(0, top_k)
             .dialect(2)
         )
@@ -125,11 +124,99 @@ class RedisVectorStore:
             q, query_params={"vec": query_bytes}
         )
 
-        docs: list[VectorDocument] = []
+        if not results.docs:
+            return []
+
+        pipe = self._client.pipeline()
         for doc in results.docs:
-            raw = doc["$"]
-            data = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
-            docs.append(VectorDocument.model_validate(data))
+            pipe.json().get(doc.id)
+        raw_docs = await pipe.execute()
+
+        return [VectorDocument.model_validate(d) for d in raw_docs if d is not None]
+
+    async def get_by_ids(self, doc_ids: list[str]) -> list[VectorDocument]:
+        """Fetch multiple documents by their IDs using a pipeline.
+
+        Args:
+            doc_ids: List of document IDs (without the ``doc:`` prefix).
+
+        Returns:
+            Documents found (missing IDs are silently skipped).
+        """
+        if not doc_ids:
+            return []
+        pipe = self._client.pipeline()
+        for doc_id in doc_ids:
+            pipe.json().get(f"doc:{doc_id}")
+        raw_docs = await pipe.execute()
+        return [VectorDocument.model_validate(d) for d in raw_docs if d is not None]
+
+    async def update_node_ids(self, doc_id: str, node_ids: list[str]) -> None:
+        """Associate Neo4j node IDs with an existing document (partial update).
+
+        Merges with any already-stored node_ids, keeping the list unique.
+
+        Args:
+            doc_id: Document ID (without ``doc:`` prefix).
+            node_ids: Node IDs extracted from this chunk.
+        """
+        key = f"doc:{doc_id}"
+        existing = await self._client.json().get(key, "$.node_ids")
+        current: list[str] = existing[0] if existing else []
+        merged = list(dict.fromkeys(current + node_ids))  # dedup, preserve insertion order
+        await self._client.json().set(key, "$.node_ids", merged)
+        logger.debug("doc_node_ids_updated", doc_id=doc_id, count=len(merged))
+
+    async def keyword_search(
+        self,
+        terms: list[str],
+        namespace: str | None = None,
+        top_k: int = 5,
+    ) -> list[VectorDocument]:
+        """Full-text search on the indexed ``text`` field.
+
+        Uses RedisSearch FT matching so it finds chunks containing the exact
+        terms regardless of semantic similarity.
+
+        Args:
+            terms: Words to search for (OR-combined).
+            namespace: Optional thread_id filter.
+            top_k: Maximum number of results.
+
+        Returns:
+            Matching documents ordered by FT score.
+        """
+        if not terms:
+            return []
+        # Build query: terms OR-combined, scoped to namespace when provided
+        escaped = [t.replace("-", "\\-").replace(".", "\\.") for t in terms]
+        text_clause = "|".join(f"@text:({w})" for w in escaped)
+        if namespace:
+            ft_query = f"(@thread_id:{{{namespace}}}) ({text_clause})"
+        else:
+            ft_query = text_clause
+
+        q = (
+            Query(ft_query)
+            .no_content()
+            .paging(0, top_k)
+            .dialect(2)
+        )
+        try:
+            results = await self._client.ft(self._index_name).search(q)
+        except Exception as exc:
+            logger.warning("keyword_search_failed", error=str(exc))
+            return []
+
+        if not results.docs:
+            return []
+
+        pipe = self._client.pipeline()
+        for doc in results.docs:
+            pipe.json().get(doc.id)
+        raw_docs = await pipe.execute()
+        docs = [VectorDocument.model_validate(d) for d in raw_docs if d is not None]
+        logger.debug("keyword_search_done", terms=terms, found=len(docs))
         return docs
 
     async def delete(self, doc_id: str) -> None:
@@ -142,6 +229,40 @@ class RedisVectorStore:
         await self._client.json().delete(key)
         logger.debug("doc_deleted", doc_id=doc_id)
 
+    async def delete_by_base_id(self, base_document_id: str) -> int:
+        """Delete all chunks belonging to a base document.
+
+        Scans all ``doc:*`` keys and removes those whose ``base_document_id``
+        matches the given value.
+
+        Args:
+            base_document_id: The base document id shared by all chunks.
+
+        Returns:
+            Number of chunks deleted.
+        """
+        deleted = 0
+        cursor = 0
+        while True:
+            cursor, keys = await self._client.scan(cursor, match="doc:*", count=100)
+            if keys:
+                pipe = self._client.pipeline()
+                for key in keys:
+                    pipe.json().get(key, "$.base_document_id")
+                base_ids = await pipe.execute()
+
+                del_pipe = self._client.pipeline()
+                for key, base_id_list in zip(keys, base_ids):
+                    if base_id_list and base_id_list[0] == base_document_id:
+                        del_pipe.delete(key)
+                        deleted += 1
+                await del_pipe.execute()
+            if cursor == 0:
+                break
+
+        logger.info("base_doc_deleted", base_document_id=base_document_id, chunks=deleted)
+        return deleted
+
     async def list_by_namespace(self, namespace: str) -> list[VectorDocument]:
         """List all documents in a namespace.
 
@@ -153,14 +274,17 @@ class RedisVectorStore:
         """
         q = (
             Query(f"@thread_id:{{{namespace}}}")
-            .return_fields("$")
+            .no_content()
             .paging(0, 1000)
             .dialect(2)
         )
         results = await self._client.ft(self._index_name).search(q)
-        docs: list[VectorDocument] = []
+        if not results.docs:
+            return []
+
+        pipe = self._client.pipeline()
         for doc in results.docs:
-            raw = doc["$"]
-            data = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
-            docs.append(VectorDocument.model_validate(data))
-        return docs
+            pipe.json().get(doc.id)
+        raw_docs = await pipe.execute()
+
+        return [VectorDocument.model_validate(d) for d in raw_docs if d is not None]

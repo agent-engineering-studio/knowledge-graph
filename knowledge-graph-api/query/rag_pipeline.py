@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncGenerator
 
@@ -21,6 +23,9 @@ class SourceReference(BaseModel):
     doc_id: str
     text_preview: str
     score: float | None = None
+    page_number: int | None = None
+    total_pages: int | None = None
+    document_name: str | None = None
 
 
 class QueryOptions(BaseModel):
@@ -53,9 +58,16 @@ Respond with ONLY the intent label, nothing else.
 """
 
 RAG_SYSTEM_PROMPT = """\
-You are a knowledge-graph-augmented assistant.  Answer the user's question
-using ONLY the context provided below.  If the context does not contain
-enough information, say so honestly.
+You are a knowledge-graph-augmented assistant. Your ONLY source of information \
+is the context provided below. You MUST NOT use any knowledge from your training data.
+
+Rules:
+- Answer ONLY using the document chunks and graph data provided.
+- If the context does not contain the answer, say exactly: \
+"The provided documents do not contain information about this topic."
+- Do NOT invent, infer, or supplement with external knowledge.
+- Cite which chunk(s) support your answer when possible.
+- Answer in the same language as the user's question.
 
 ## Document chunks
 {data_text}
@@ -96,21 +108,70 @@ class GraphRAGPipeline:
         start = time.perf_counter()
 
         # 1 — Intent analysis
+        t1 = time.perf_counter()
         intent = await self._classify_intent(user_query)
-        logger.info("query_intent", intent=intent)
+        logger.info("query_intent", intent=intent, ms=round((time.perf_counter() - t1) * 1000, 1))
 
-        # 2 — Vector search
-        docs = await self.searcher.search(user_query, top_k=options.top_k, namespace=thread_id)
+        # 2 — Hybrid retrieval: vector search + keyword search in parallel
+        t2 = time.perf_counter()
+        vector_task = self.searcher.search(user_query, top_k=options.top_k, namespace=thread_id)
+        keyword_task = self.searcher.keyword_search(user_query, namespace=thread_id, top_k=5)
+        vector_docs, keyword_docs = await asyncio.gather(vector_task, keyword_task)
+
+        # Merge: keyword hits first (exact match → higher relevance), deduplicate
+        seen_ids: set[str] = set()
+        docs: list = []
+        for d in keyword_docs:
+            if d.id not in seen_ids:
+                docs.append(d)
+                seen_ids.add(d.id)
+        for d in vector_docs:
+            if d.id not in seen_ids:
+                docs.append(d)
+                seen_ids.add(d.id)
+
+        logger.info(
+            "hybrid_retrieval_done",
+            keyword=len(keyword_docs),
+            vector=len(vector_docs),
+            merged=len(docs),
+            ms=round((time.perf_counter() - t2) * 1000, 1),
+        )
+
+        # 3 — Graph enrichment from chunk node_ids (bidirectional reference)
+        t3 = time.perf_counter()
+        # Collect unique node_ids from all retrieved chunks
+        node_ids: list[str] = list(
+            dict.fromkeys(nid for d in docs for nid in (d.node_ids or []))
+        )
+
+        # For entity/relation queries also search Neo4j by name as fallback
+        # (covers docs ingested before node_ids were tracked)
+        if intent in ("entity_query", "relation_query") and not node_ids:
+            entity_nodes = await self.traverser.find_entities(user_query, thread_id)
+            node_ids = [n.id for n in entity_nodes]
+            logger.info("entity_nodes_fallback", count=len(node_ids), names=[n.name for n in entity_nodes])
+
+        logger.info("graph_node_ids_collected", count=len(node_ids), intent=intent)
+        graph_data = await self.traverser.enrich(node_ids, max_hops=options.max_hops)
+        logger.info(
+            "graph_enrichment_done",
+            nodes=len(graph_data["nodes"]),
+            edges=len(graph_data["edges"]),
+            ms=round((time.perf_counter() - t3) * 1000, 1),
+        )
+
         data_text = "\n\n---\n\n".join(d.text for d in docs)
         sources = [
-            SourceReference(doc_id=d.id, text_preview=d.text[:200])
+            SourceReference(
+                doc_id=d.id,
+                text_preview=d.text[:200],
+                page_number=d.page_number,
+                total_pages=d.total_pages if d.total_pages else None,
+                document_name=os.path.basename(d.name) if d.name else None,
+            )
             for d in docs
         ]
-
-        # 3 — Graph enrichment
-        # Extract entity ids mentioned in top chunks (heuristic: look up by name)
-        node_ids: list[str] = []
-        graph_data = await self.traverser.enrich(node_ids, max_hops=options.max_hops)
         nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
         edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
 
@@ -179,6 +240,7 @@ class GraphRAGPipeline:
         self, system_message: str, user_query: str
     ) -> AsyncGenerator[str, None]:
         """Streaming LLM generation via SSE-compatible chunks."""
+        logger.info("llm_stream_start", model=settings.OLLAMA_LLM_MODEL)
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
@@ -192,11 +254,21 @@ class GraphRAGPipeline:
                     "stream": True,
                 },
             ) as response:
+                logger.info("llm_stream_connected", status=response.status_code)
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    data = json.loads(line)
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning("stream_invalid_json", line=line[:200])
+                        continue
+                    if data.get("error"):
+                        logger.error("llm_stream_error", error=data["error"])
+                        raise RuntimeError(f"Ollama error: {data['error']}")
                     content = data.get("message", {}).get("content", "")
                     if content:
                         yield content
+                    if data.get("done"):
+                        logger.info("llm_stream_done")

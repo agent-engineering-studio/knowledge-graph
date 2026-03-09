@@ -93,15 +93,18 @@ async def health() -> HealthResponse:
 
 @app.delete("/documents/{document_id}")
 async def delete_document(document_id: str) -> dict:
-    """Delete a document and its chunks from Redis.
+    """Delete all chunks belonging to a base document from Redis.
 
     Args:
-        document_id: The base document id.
+        document_id: The base_document_id shared by all chunks of the document.
 
     Returns:
-        Confirmation dict.
+        Confirmation dict with number of deleted chunks.
     """
     store = RedisVectorStore()
-    await store.delete(document_id)
-    logger.info("document_deleted", document_id=document_id)
-    return {"deleted": document_id}
+    try:
+        chunks_deleted = await store.delete_by_base_id(document_id)
+        logger.info("document_deleted", document_id=document_id, chunks=chunks_deleted)
+        return {"deleted": document_id, "chunks_deleted": chunks_deleted}
+    finally:
+        await store.close()
