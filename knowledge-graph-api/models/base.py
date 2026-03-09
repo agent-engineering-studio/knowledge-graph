@@ -14,7 +14,6 @@ class VectorDocument(BaseModel):
     text: str
     name: str
     vector: list[float] = Field(default_factory=list)
-    description: str | None = None
     page_number: int = 0
     total_pages: int = 0
     content_hash: str | None = None

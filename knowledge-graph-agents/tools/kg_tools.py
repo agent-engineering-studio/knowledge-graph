@@ -1,32 +1,48 @@
-"""HTTP wrappers around knowledge-graph-api endpoints.
+"""MCP client wrappers for the knowledge-graph-mcp server.
 
-Each function is a thin async wrapper that calls the REST API.
-Config is read from the KG_API_URL and KG_API_TIMEOUT environment variables.
+Each function calls the corresponding MCP tool exposed by knowledge-graph-mcp
+via its SSE transport. Config is read from KG_MCP_URL and KG_API_TIMEOUT.
+
+KG_API_URL / KG_API_TIMEOUT are kept for backwards-compat with agent_api.py
+health display (not used for tool calls anymore).
 """
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
-import httpx
+from mcp import ClientSession
+from mcp.client.sse import sse_client
 
+KG_MCP_URL: str = os.getenv("KG_MCP_URL", "http://localhost:8080").rstrip("/")
+
+# Kept for the health endpoint display in agent_api.py
 KG_API_URL: str = os.getenv("KG_API_URL", "http://localhost:8000").rstrip("/")
 KG_API_TIMEOUT: float = float(os.getenv("KG_API_TIMEOUT", "60"))
 
 
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(base_url=KG_API_URL, timeout=KG_API_TIMEOUT)
+async def _call(tool_name: str, arguments: dict[str, Any]) -> Any:
+    """Open an MCP SSE session, call a tool, and return the parsed JSON result."""
+    async with sse_client(f"{KG_MCP_URL}/sse", timeout=10.0, sse_read_timeout=600.0) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(tool_name, arguments)
+    if result.isError:
+        err = (result.content[0].text if result.content else "") or "unknown MCP error"
+        raise RuntimeError(f"MCP tool '{tool_name}' error: {err}")
+    text = result.content[0].text if result.content else "{}"
+    if not text:
+        raise RuntimeError(f"MCP tool '{tool_name}' returned empty response")
+    return json.loads(text)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
 async def kg_health_tool() -> dict:
-    """GET /health — check Neo4j, Redis, Ollama availability."""
-    async with _client() as c:
-        r = await c.get("/health")
-        r.raise_for_status()
-        return r.json()
+    """kg_health — check Neo4j, Redis, Ollama availability."""
+    return await _call("kg_health", {})
 
 
 # ── Query ─────────────────────────────────────────────────────────────────────
@@ -37,24 +53,18 @@ async def kg_query_tool(
     top_k: int = 10,
     max_hops: int = 2,
 ) -> dict:
-    """POST /query — hybrid RAG (vector + graph + LLM).
+    """kg_query — hybrid RAG (vector + graph + LLM).
 
     Returns:
         RAGResponse dict with ``answer``, ``sources``, ``nodes_used``,
         ``edges_used``, ``query_intent``, ``processing_time_ms``.
     """
-    async with _client() as c:
-        r = await c.post(
-            "/query",
-            json={
-                "query": query,
-                "thread_id": thread_id,
-                "top_k": top_k,
-                "max_hops": max_hops,
-            },
-        )
-        r.raise_for_status()
-        return r.json()
+    return await _call("kg_query", {
+        "query": query,
+        "thread_id": thread_id,
+        "top_k": top_k,
+        "max_hops": max_hops,
+    })
 
 
 # ── Ingest ────────────────────────────────────────────────────────────────────
@@ -64,65 +74,40 @@ async def kg_ingest_tool(
     thread_id: str,
     skip_existing: bool = True,
 ) -> dict:
-    """POST /ingest — ingest a document through the full pipeline.
+    """kg_ingest — ingest a document through the full pipeline.
 
     Returns:
-        IngestResult dict with ``document_id``, ``chunks_processed``,
-        ``entities_extracted``, ``relations_extracted``, etc.
+        IngestResult dict with ``document_id``, ``chunks_processed``, etc.
     """
-    async with _client() as c:
-        r = await c.post(
-            "/ingest",
-            json={
-                "file_path": file_path,
-                "thread_id": thread_id,
-                "skip_existing": skip_existing,
-            },
-        )
-        r.raise_for_status()
-        return r.json()
+    return await _call("kg_ingest", {
+        "file_path": file_path,
+        "thread_id": thread_id,
+        "skip_existing": skip_existing,
+    })
 
 
 # ── Documents ─────────────────────────────────────────────────────────────────
 
 async def kg_list_documents_tool(namespace: str) -> dict:
-    """GET /documents/{namespace} — list all documents in a namespace."""
-    async with _client() as c:
-        r = await c.get(f"/documents/{namespace}")
-        r.raise_for_status()
-        return r.json()
+    """kg_list_documents — list all documents in a namespace."""
+    return await _call("kg_list_documents", {"namespace": namespace})
 
 
 async def kg_delete_document_tool(doc_id: str) -> dict:
-    """DELETE /documents/{doc_id} — remove a document and its chunks."""
-    async with _client() as c:
-        r = await c.delete(f"/documents/{doc_id}")
-        r.raise_for_status()
-        return r.json()
+    """kg_delete_document — remove a document and its chunks."""
+    return await _call("kg_delete_document", {"document_id": doc_id})
 
 
 # ── Graph ─────────────────────────────────────────────────────────────────────
 
 async def kg_search_nodes_tool(name: str, namespace: str) -> dict:
-    """POST /graph/nodes/search — find a KG node by exact name."""
-    async with _client() as c:
-        r = await c.post(
-            "/graph/nodes/search",
-            json={"name": name, "namespace": namespace},
-        )
-        r.raise_for_status()
-        return r.json()
+    """kg_search_nodes — find a KG node by exact name."""
+    return await _call("kg_search_nodes", {"name": name, "namespace": namespace})
 
 
 async def kg_traverse_tool(node_id: str, max_hops: int = 2) -> dict:
-    """POST /graph/traverse — explore neighbours up to max_hops."""
-    async with _client() as c:
-        r = await c.post(
-            "/graph/traverse",
-            json={"node_id": node_id, "max_hops": max_hops},
-        )
-        r.raise_for_status()
-        return r.json()
+    """kg_traverse — explore neighbours up to max_hops."""
+    return await _call("kg_traverse", {"node_id": node_id, "max_hops": max_hops})
 
 
 async def kg_cypher_tool(
@@ -130,16 +115,6 @@ async def kg_cypher_tool(
     namespace: str,
     params: dict[str, Any] | None = None,
 ) -> dict:
-    """POST /graph/cypher — execute a read-only Cypher query.
-
-    Write operations are blocked by the API guardrail.
-    The ``namespace`` parameter is included in params for filtering.
-    """
+    """kg_cypher — execute a read-only Cypher query."""
     merged_params = {"namespace": namespace, **(params or {})}
-    async with _client() as c:
-        r = await c.post(
-            "/graph/cypher",
-            json={"query": query, "params": merged_params},
-        )
-        r.raise_for_status()
-        return r.json()
+    return await _call("kg_cypher", {"query": query, "params": merged_params})

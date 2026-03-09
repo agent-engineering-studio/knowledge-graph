@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getAgentRuns,
   postAgentRun,
+  uploadAndRunAgent,
   type AgentPlanStep,
   type AgentRunRecord,
   type AgentRunResponse,
@@ -15,6 +16,8 @@ interface Message {
   meta?: AgentRunResponse;
 }
 
+const ACCEPTED_TYPES = ".pdf,.docx,.txt";
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -24,6 +27,8 @@ export default function ChatPage() {
   const [history, setHistory] = useState<AgentRunRecord[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -46,19 +51,29 @@ export default function ChatPage() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if ((!text && !attachedFile) || loading) return;
 
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const userContent = attachedFile
+      ? `[${attachedFile.name}]${text ? `\n${text}` : ""}`
+      : text;
+
     setInput("");
+    setAttachedFile(null);
     setError(null);
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setMessages((prev) => [...prev, { role: "user", content: userContent }]);
     setLoading(true);
 
     try {
-      const res = await postAgentRun({ request: text, thread_id: threadId }, ctrl.signal);
+      let res: AgentRunResponse;
+      if (attachedFile) {
+        res = await uploadAndRunAgent(attachedFile, threadId, text || undefined, ctrl.signal);
+      } else {
+        res = await postAgentRun({ request: text, thread_id: threadId }, ctrl.signal);
+      }
       setMessages((prev) => [
         ...prev,
         { role: "agent", content: res.output, meta: res },
@@ -66,17 +81,23 @@ export default function ChatPage() {
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Agent request failed");
-      setMessages((prev) => prev.slice(0, -1)); // remove user bubble on error
+      setMessages((prev) => prev.slice(0, -1));
     } finally {
       setLoading(false);
     }
-  }, [input, threadId, loading]);
+  }, [input, attachedFile, threadId, loading]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setAttachedFile(f);
+    e.target.value = "";
   };
 
   return (
@@ -114,7 +135,7 @@ export default function ChatPage() {
           <div className="flex-1 overflow-y-auto bg-white rounded-lg border p-4 space-y-4">
             {messages.length === 0 && !loading && (
               <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                Ask the agent anything about the knowledge graph…
+                Ask the agent anything, or attach a document (PDF/DOCX/TXT) to ingest it…
               </div>
             )}
 
@@ -174,7 +195,7 @@ export default function ChatPage() {
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-gray-100 rounded-lg px-4 py-2.5 text-sm text-gray-400 animate-pulse">
-                  Agent is thinking…
+                  {attachedFile ? "Ingesting document…" : "Agent is thinking…"}
                 </div>
               </div>
             )}
@@ -189,23 +210,59 @@ export default function ChatPage() {
             </div>
           )}
 
+          {/* Attached file badge */}
+          {attachedFile && (
+            <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-sm text-blue-700">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+              <span className="truncate flex-1">{attachedFile.name}</span>
+              <button onClick={() => setAttachedFile(null)} className="text-blue-400 hover:text-blue-700 shrink-0">✕</button>
+            </div>
+          )}
+
           {/* Input */}
           <div className="mt-3 flex gap-2 items-end">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_TYPES}
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {/* Attach button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              title="Attach document (PDF, DOCX, TXT)"
+              className="border rounded p-2 text-gray-400 hover:text-blue-600 hover:border-blue-400 disabled:opacity-40 shrink-0"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
-              placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
+              placeholder={
+                attachedFile
+                  ? "Optional message… (Enter to ingest)"
+                  : "Ask a question… (Enter to send, Shift+Enter for newline)"
+              }
               className="flex-1 border rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
             <div className="flex flex-col gap-1">
               <button
                 onClick={handleSend}
-                disabled={loading || !input.trim()}
+                disabled={loading || (!input.trim() && !attachedFile)}
                 className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {loading ? "…" : "Send"}
+                {loading ? "…" : attachedFile ? "Ingest" : "Send"}
               </button>
               {messages.length > 0 && (
                 <button

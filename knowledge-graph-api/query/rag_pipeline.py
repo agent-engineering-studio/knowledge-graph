@@ -60,18 +60,20 @@ _ENTITY_KEYWORDS = {
 }
 
 RAG_SYSTEM_PROMPT = """\
-You are a knowledge-graph-augmented assistant. Your ONLY source of information \
-is the context provided below. You MUST NOT use any knowledge from your training data.
+You are a document retrieval assistant. You MUST answer using ONLY the text \
+from the document chunks provided below. This is MANDATORY.
 
-Rules:
-- Answer ONLY using the document chunks and graph data provided.
-- If the context does not contain the answer, say exactly: \
+STRICT RULES — follow all of them without exception:
+1. Use ONLY the information found in the document chunks below.
+2. NEVER use your training data, general knowledge, or external information.
+3. If the answer is NOT in the document chunks, respond with EXACTLY this \
+sentence (translated to the user's language): \
 "The provided documents do not contain information about this topic."
-- Do NOT invent, infer, or supplement with external knowledge.
-- Cite which chunk(s) support your answer when possible.
-- Answer in the same language as the user's question.
+4. Do NOT add context, caveats, or extra knowledge beyond what is in the chunks.
+5. Quote or paraphrase the exact values/phrases from the chunks.
+6. Answer in the same language as the user's question.
 
-## Document chunks
+## Document chunks (your ONLY allowed information source)
 {data_text}
 
 ## Graph nodes
@@ -80,6 +82,19 @@ Rules:
 ## Graph edges
 {edges_str}
 """
+
+_NO_DOCS_REPLY = {
+    "it": "I documenti forniti non contengono informazioni su questo argomento.",
+    "en": "The provided documents do not contain information about this topic.",
+}
+
+
+def _no_docs_message(query: str) -> str:
+    """Return the 'no documents' message in the appropriate language."""
+    q = query.lower()
+    if any(w in q for w in ("cosa", "che", "come", "quale", "quanto", "chi", "dove", "quando", "dammi", "dimmi")):
+        return _NO_DOCS_REPLY["it"]
+    return _NO_DOCS_REPLY["en"]
 
 
 class GraphRAGPipeline:
@@ -177,14 +192,26 @@ class GraphRAGPipeline:
         nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
         edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
 
-        # 4 — Context assembly
+        # 4 — Short-circuit: no documents retrieved → skip LLM entirely
+        if not docs:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            return RAGResponse(
+                answer=_no_docs_message(user_query),
+                sources=[],
+                nodes_used=[],
+                edges_used=[],
+                query_intent=intent,
+                processing_time_ms=round(elapsed_ms, 1),
+            )
+
+        # 5 — Context assembly
         system_message = RAG_SYSTEM_PROMPT.format(
-            data_text=data_text or "No relevant documents found.",
+            data_text=data_text,
             nodes_str=nodes_str,
             edges_str=edges_str,
         )
 
-        # 5 — LLM generation
+        # 6 — LLM generation
         if options.stream:
             return self._stream_response(system_message, user_query)
 

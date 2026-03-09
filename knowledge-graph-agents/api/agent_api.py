@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -111,6 +111,85 @@ async def run_agent(body: AgentRunRequest) -> AgentRunResponse:
         output=output,
         plan=plan,
         quality=quality,
+        duration_ms=elapsed_ms,
+        error=error,
+    )
+
+
+@app.post("/agents/run/upload", response_model=AgentRunResponse)
+async def run_agent_upload(
+    file: UploadFile = File(...),
+    thread_id: str = Form("default"),
+    message: str = Form(""),
+) -> AgentRunResponse:
+    """Upload a document file and run the ingestion agent.
+
+    Stages the file on the API server, then triggers the ingestion agent
+    workflow which processes the file through the full KG pipeline.
+
+    Args:
+        file: Document to ingest (PDF, DOCX, or TXT).
+        thread_id: Namespace / partition key.
+        message: Optional user message (displayed in the conversation).
+    """
+    run_id = str(uuid.uuid4())
+    start_ms = time.perf_counter()
+
+    # 1 — Stage the file on the API server
+    try:
+        async with httpx.AsyncClient(base_url=KG_API_URL, timeout=30.0) as c:
+            content = await file.read()
+            r = await c.post(
+                "/ingest/stage",
+                files={"file": (file.filename, content, file.content_type or "application/octet-stream")},
+            )
+            r.raise_for_status()
+            tmp_path: str = r.json()["tmp_path"]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"File staging failed: {exc}")
+
+    # 2 — Run the ingestion agent workflow
+    request_text = message or f"Carica il documento: {file.filename}"
+    initial_state = {
+        "user_request": request_text,
+        "intent": "ingest",
+        "plan": [],
+        "current_step": 0,
+        "context": {"file_path": tmp_path, "skip_existing": True},
+        "final_output": None,
+        "error": None,
+        "thread_id": thread_id,
+        "run_id": run_id,
+    }
+
+    try:
+        final_state = await agent_graph.ainvoke(initial_state)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Agent execution failed: {exc}")
+
+    elapsed_ms = int((time.perf_counter() - start_ms) * 1000)
+    output = final_state.get("final_output") or "Ingestion completata."
+    error = final_state.get("error")
+    plan = final_state.get("plan", [])
+
+    record = AgentRunRecord(
+        run_id=run_id,
+        agent_name="ingestion",
+        intent="ingest",
+        input_summary=f"[FILE] {file.filename}",
+        output_summary=output[:200],
+        tool_calls=[step.get("action", "") for step in plan],
+        duration_ms=elapsed_ms,
+        status="failed" if error else "success",
+    )
+    await save_agent_run(record)
+
+    return AgentRunResponse(
+        run_id=run_id,
+        intent="ingest",
+        output=output,
+        plan=plan,
+        quality=None,
         duration_ms=elapsed_ms,
         error=error,
     )

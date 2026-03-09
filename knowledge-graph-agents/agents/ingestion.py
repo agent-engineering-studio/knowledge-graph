@@ -27,7 +27,7 @@ async def ingestion_node(state: AgentState) -> AgentState:
     # Pre-check: verify the API is healthy
     try:
         health = await kg_health_tool()
-        if health.get("status") != "ok":
+        if health.get("status") not in ("ok", "healthy"):
             return {
                 **state,
                 "error": "Ingestion Agent: KG API health check failed",

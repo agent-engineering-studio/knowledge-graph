@@ -41,6 +41,35 @@ async def ingest_document(body: IngestRequest) -> IngestResult:
     return result
 
 
+@router.post("/ingest/stage")
+async def stage_file(file: UploadFile = File(...)) -> dict:
+    """Save an uploaded file to a temporary location without processing it.
+
+    Used by the agents service to stage a file before triggering the
+    ingestion agent (which calls ``/ingest`` with the returned path).
+
+    Args:
+        file: The document to stage.
+
+    Returns:
+        ``{"tmp_path": "...", "original_name": "..."}``
+    """
+    original_name = pathlib.Path(file.filename or "upload")
+    suffix = original_name.suffix or ".bin"
+    safe_stem = "".join(c if c.isalnum() or c in "-_ " else "_" for c in original_name.stem)[:60]
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix,
+        prefix=safe_stem + "_",
+        dir=tempfile.gettempdir(),
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    logger.info("file_staged", filename=file.filename, size=len(content), tmp=tmp_path)
+    return {"tmp_path": tmp_path, "original_name": file.filename or ""}
+
+
 @router.post("/ingest/upload", response_model=IngestResult)
 async def upload_and_ingest(
     file: UploadFile = File(...),

@@ -200,6 +200,28 @@ export function getAgentRuns(limit = 10, signal?: AbortSignal) {
   return agentsFetch<AgentRunRecord[]>(`/agents/runs?limit=${limit}`, { signal });
 }
 
+export async function uploadAndRunAgent(
+  file: File,
+  threadId: string,
+  message?: string,
+  signal?: AbortSignal,
+): Promise<AgentRunResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("thread_id", threadId);
+  form.append("message", message || `Carica il documento: ${file.name}`);
+  const res = await fetch(`${AGENTS_URL}/agents/run/upload`, {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`Agents API ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<AgentRunResponse>;
+}
+
 /**
  * Stream a RAG query via SSE. Yields each token as it arrives.
  */
