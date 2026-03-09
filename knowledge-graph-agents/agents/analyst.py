@@ -1,117 +1,119 @@
-"""Analyst Agent — answers questions using vector search, graph traversal, or both."""
+"""Analyst Agent — retrieves context via KG API and calls Ollama directly for grounded answers."""
 
 from __future__ import annotations
 
-from tools.kg_tools import kg_query_tool, kg_search_nodes_tool, kg_traverse_tool
+import os
+
+import httpx
+
+from tools.kg_tools import kg_retrieve_context_tool
 from orchestration.state import AgentState
 
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_LLM_MODEL: str = os.getenv("OLLAMA_LLM_MODEL", "qwen2.5:7b")
 
-async def _vector_search(query: str, thread_id: str, top_k: int = 10) -> dict:
-    """Pure vector semantic search via RAG pipeline."""
-    return await kg_query_tool(query=query, thread_id=thread_id, top_k=top_k, max_hops=0)
+_NO_DOCS_REPLY = {
+    "it": "I documenti forniti non contengono informazioni su questo argomento.",
+    "en": "The provided documents do not contain information about this topic.",
+}
+
+_ITALIAN_WORDS = ("cosa", "che", "come", "quale", "quanto", "chi", "dove", "quando", "dammi", "dimmi")
 
 
-async def _graph_traversal(query: str, thread_id: str) -> dict:
-    """Structural graph traversal: look up the entity then explore neighbours."""
-    # Step 1: find the main entity node by name (use query as entity name hint)
-    node_result = await kg_search_nodes_tool(name=query, namespace=thread_id)
-    node = node_result.get("node")
-    if not node:
-        return {"answer": "Nessun nodo trovato per l'entità richiesta.", "graph_path": []}
+def _no_docs_message(query: str) -> str:
+    q = query.lower()
+    if any(w in q for w in _ITALIAN_WORDS):
+        return _NO_DOCS_REPLY["it"]
+    return _NO_DOCS_REPLY["en"]
 
-    # Step 2: traverse from the found node
-    node_id = node.get("id", "")
-    traversal = await kg_traverse_tool(node_id=node_id, max_hops=2)
 
-    neighbors = traversal.get("nodes", [])
-    edges = traversal.get("edges", [])
-
-    graph_path = [
-        f"{node.get('name', '')} → {e.get('type', '?')} → {e.get('target', '')}"
-        for e in edges[:10]
-    ]
-
-    answer = (
-        f"Entità principale: {node.get('name')} (tipo: {node.get('node_type', '?')})\n"
-        f"Vicini trovati: {len(neighbors)}\n"
-        f"Relazioni: {len(edges)}"
+async def _generate(context_message: str, user_query: str) -> str:
+    """Call Ollama with the retrieval context and return the grounded answer."""
+    extraction_prompt = (
+        "Follow STEP 1→2→3→4 from the instructions. "
+        "Find the answer in <documents> then respond.\n\n"
+        f"Question: {user_query}"
     )
-
-    return {
-        "answer": answer,
-        "graph_path": graph_path,
-        "node": node,
-        "neighbors": neighbors,
-    }
-
-
-async def _hybrid_search(query: str, thread_id: str, top_k: int = 10) -> dict:
-    """Combine vector search and graph traversal results."""
-    vector_result = await _vector_search(query, thread_id, top_k)
-
-    # Try graph traversal only when a node is explicitly mentioned
-    graph_result: dict = {}
-    try:
-        graph_result = await _graph_traversal(query, thread_id)
-    except Exception:
-        graph_result = {"answer": "", "graph_path": []}
-
-    # Merge: use the RAG answer as primary, enrich with graph path
-    combined_answer = vector_result.get("answer", "")
-    graph_path = graph_result.get("graph_path", [])
-    if graph_path:
-        combined_answer += "\n\n**Percorso nel grafo:**\n" + "\n".join(graph_path)
-
-    sources = vector_result.get("sources", [])
-    confidence = min(1.0, len(sources) / 5) if sources else 0.3
-
-    return {
-        "answer": combined_answer,
-        "confidence": confidence,
-        "sources": sources,
-        "graph_path": graph_path,
-        "nodes_used": vector_result.get("nodes_used", []),
-        "edges_used": vector_result.get("edges_used", []),
-        "query_intent": vector_result.get("query_intent", "general"),
-    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json={
+                "model": OLLAMA_LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": context_message},
+                    {"role": "user", "content": extraction_prompt},
+                ],
+                "stream": False,
+            },
+        )
+        if response.status_code == 404:
+            body = response.json() if response.content else {}
+            err = body.get("error", "")
+            if "not found" in err.lower():
+                raise RuntimeError(
+                    f"Ollama model '{OLLAMA_LLM_MODEL}' not found. "
+                    f"Run: ollama pull {OLLAMA_LLM_MODEL}"
+                )
+        response.raise_for_status()
+        return response.json()["message"]["content"]
 
 
 async def analyst_node(state: AgentState) -> AgentState:
-    """LangGraph node: answer the user query using the appropriate search strategy.
+    """LangGraph node: retrieve knowledge-graph context, then call Ollama directly.
 
-    Strategy is read from ``context["analyst_strategy"]`` if present, else
-    defaults to ``"hybrid"``.
+    Flow:
+      1. Call kg_retrieve_context_tool (vector + keyword + graph, no LLM)
+      2. If no documents found → return localised "no info" message
+      3. Call Ollama with the assembled context_message as system prompt
+      4. Append source references to the answer for verification
     """
     context: dict = dict(state.get("context", {}))
     thread_id: str = state.get("thread_id", "default")
     query: str = context.get("query", state.get("user_request", ""))
-    strategy: str = context.get("analyst_strategy", "hybrid")
     top_k: int = context.get("top_k", 10)
 
     try:
-        if strategy == "vector":
-            result = await _vector_search(query, thread_id, top_k)
-        elif strategy == "graph":
-            result = await _graph_traversal(query, thread_id)
-        else:
-            result = await _hybrid_search(query, thread_id, top_k)
+        retrieval = await kg_retrieve_context_tool(
+            query=query,
+            thread_id=thread_id,
+            top_k=top_k,
+            max_hops=2,
+        )
     except Exception as exc:
         return {
             **state,
             "context": context,
-            "error": f"Analyst Agent: search failed — {exc}",
-            "final_output": f"Errore durante la ricerca: {exc}",
+            "error": f"Analyst Agent: retrieval failed — {exc}",
+            "final_output": f"Errore durante il recupero del contesto: {exc}",
         }
 
-    context["analyst_result"] = result
+    context["analyst_retrieval"] = retrieval
+    sources = retrieval.get("sources", [])
 
-    answer = result.get("answer", "Nessuna risposta trovata.")
-    sources = result.get("sources", [])
+    # Short-circuit: no documents → skip LLM
+    if not retrieval.get("has_documents", False):
+        return {
+            **state,
+            "context": context,
+            "final_output": _no_docs_message(query),
+            "error": None,
+        }
+
+    # Call Ollama with the retrieval context assembled by the API
+    try:
+        answer = await _generate(retrieval["context_message"], query)
+    except Exception as exc:
+        return {
+            **state,
+            "context": context,
+            "error": f"Analyst Agent: LLM generation failed — {exc}",
+            "final_output": f"Errore durante la generazione della risposta: {exc}",
+        }
 
     # Append source references so the user can verify retrieval
     if sources:
         source_lines = []
-        for s in sources[:5]:  # cap at 5
+        for s in sources[:5]:
             name = s.get("document_name") or s.get("doc_id", "")
             preview = s.get("text_preview", "")[:120].replace("\n", " ")
             source_lines.append(f"- **{name}**: _{preview}…_")

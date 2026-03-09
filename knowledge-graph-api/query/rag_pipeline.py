@@ -47,6 +47,18 @@ class RAGResponse(BaseModel):
     processing_time_ms: float
 
 
+class RetrievalResult(BaseModel):
+    """Retrieval-only result: context ready for LLM generation (no LLM call)."""
+
+    context_message: str
+    sources: list[SourceReference]
+    nodes_used: list[str]
+    edges_used: list[str]
+    query_intent: str
+    processing_time_ms: float
+    has_documents: bool
+
+
 # Keywords used for fast (no-LLM) intent classification
 _RELATION_KEYWORDS = {
     "relazione", "collegamento", "relation", "relationship", "connected",
@@ -60,17 +72,26 @@ _ENTITY_KEYWORDS = {
 }
 
 _RAG_PROMPT_HEADER = """\
-You are a document Q&A system. Your ONLY source of information is the content \
-inside the <documents> tags below. This is MANDATORY.
+You are a document data extractor. Extract information ONLY from the \
+<documents> section below. Follow this exact process:
 
-STRICT RULES:
-1. Answer ONLY using information found inside <documents>.
-2. NEVER use your training knowledge or external information.
-3. If the answer is NOT inside <documents>, respond with EXACTLY: \
-"I documenti forniti non contengono informazioni su questo argomento." (Italian) \
-or "The provided documents do not contain information about this topic." (English).
-4. Quote the exact values and numbers you find in the documents.
-5. Answer in the same language as the user's question.
+STEP 1 — SCAN: Read every document section inside <documents>.
+STEP 2 — FIND: Identify all passages that contain values or facts \
+relevant to the question.
+STEP 3 — LIST: For each relevant passage write one line: \
+"[document_name]: [exact_value_or_quote]"
+STEP 4 — ANSWER: Give a direct answer based ONLY on the lines you \
+wrote in STEP 3.
+
+FORBIDDEN:
+- Do NOT use training knowledge or external medical context.
+- Do NOT invent, estimate, or add values not found in STEP 2.
+- If STEP 2 finds nothing, respond with EXACTLY: \
+"I documenti forniti non contengono informazioni su questo argomento." \
+(Italian) or "The provided documents do not contain information about \
+this topic." (English).
+
+Answer in the same language as the question.
 
 """
 
@@ -219,6 +240,91 @@ class GraphRAGPipeline:
             processing_time_ms=round(elapsed_ms, 1),
         )
 
+    async def retrieve(
+        self,
+        user_query: str,
+        thread_id: str,
+        options: QueryOptions | None = None,
+    ) -> RetrievalResult:
+        """Retrieve context (vector + graph) WITHOUT calling the LLM.
+
+        Returns a ``RetrievalResult`` with ``context_message`` (the assembled
+        system prompt ready for any LLM) plus structured metadata.
+        """
+        options = options or QueryOptions()
+        start = time.perf_counter()
+
+        # 1 — Intent
+        intent = self._classify_intent(user_query)
+
+        # 2 — Hybrid retrieval
+        vector_task = self.searcher.search(user_query, top_k=options.top_k, namespace=thread_id)
+        keyword_task = self.searcher.keyword_search(user_query, namespace=thread_id, top_k=5)
+        vector_docs, keyword_docs = await asyncio.gather(vector_task, keyword_task)
+
+        seen_ids: set[str] = set()
+        docs: list = []
+        for d in keyword_docs:
+            if d.id not in seen_ids:
+                docs.append(d)
+                seen_ids.add(d.id)
+        for d in vector_docs:
+            if d.id not in seen_ids:
+                docs.append(d)
+                seen_ids.add(d.id)
+
+        # 3 — Graph enrichment
+        node_ids: list[str] = list(
+            dict.fromkeys(nid for d in docs for nid in (d.node_ids or []))
+        )
+        if intent in ("entity_query", "relation_query") and not node_ids:
+            entity_nodes = await self.traverser.find_entities(user_query, thread_id)
+            node_ids = [n.id for n in entity_nodes]
+
+        graph_data = await self.traverser.enrich(node_ids, max_hops=options.max_hops)
+
+        # 4 — Assemble context message (each chunk labelled by document name)
+        if docs:
+            doc_sections = []
+            for d in docs:
+                label = os.path.basename(d.name) if d.name else d.id
+                doc_sections.append(f"[Document: {label}]\n{d.text}")
+            data_text = "\n\n---\n\n".join(doc_sections)
+        else:
+            data_text = ""
+
+        nodes_str = json.dumps(graph_data["nodes"], default=str) if graph_data["nodes"] else "None"
+        edges_str = json.dumps(graph_data["edges"], default=str) if graph_data["edges"] else "None"
+
+        context_message = (
+            _RAG_PROMPT_HEADER
+            + "<documents>\n" + data_text + "\n</documents>"
+            + "\n\n<graph_nodes>\n" + nodes_str + "\n</graph_nodes>"
+            + "\n\n<graph_edges>\n" + edges_str + "\n</graph_edges>"
+        )
+
+        sources = [
+            SourceReference(
+                doc_id=d.id,
+                text_preview=d.text[:200],
+                page_number=d.page_number,
+                total_pages=d.total_pages if d.total_pages else None,
+                document_name=os.path.basename(d.name) if d.name else None,
+            )
+            for d in docs
+        ]
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        return RetrievalResult(
+            context_message=context_message,
+            sources=sources,
+            nodes_used=[n.get("neighbor", {}).get("id", "") for n in graph_data["nodes"]],
+            edges_used=[str(e) for e in graph_data["edges"]],
+            query_intent=intent,
+            processing_time_ms=round(elapsed_ms, 1),
+            has_documents=bool(docs),
+        )
+
     # ── Private helpers ──────────────────────────────────────────────
 
     def _classify_intent(self, query: str) -> str:
@@ -232,6 +338,12 @@ class GraphRAGPipeline:
 
     async def _generate(self, system_message: str, user_query: str) -> str:
         """Non-streaming LLM generation."""
+        # Explicit extraction instruction prepended to force grounding in local LLMs
+        extraction_prompt = (
+            "Follow STEP 1→2→3→4 from the instructions. "
+            "Find the answer in <documents> then respond.\n\n"
+            f"Question: {user_query}"
+        )
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{settings.OLLAMA_BASE_URL}/api/chat",
@@ -239,7 +351,7 @@ class GraphRAGPipeline:
                     "model": settings.OLLAMA_LLM_MODEL,
                     "messages": [
                         {"role": "system", "content": system_message},
-                        {"role": "user", "content": user_query},
+                        {"role": "user", "content": extraction_prompt},
                     ],
                     "stream": False,
                 },

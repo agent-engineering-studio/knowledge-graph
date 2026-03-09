@@ -94,6 +94,26 @@ class KGApiClient:
             self._raise(r)
             return r.json()
 
+    async def retrieve_context(
+        self,
+        query: str,
+        thread_id: str,
+        top_k: int = 10,
+        max_hops: int = 2,
+    ) -> dict:
+        async with self._client() as c:
+            r = await c.post(
+                "/query/context",
+                json={
+                    "query": query,
+                    "thread_id": thread_id,
+                    "top_k": top_k,
+                    "max_hops": max_hops,
+                },
+            )
+            self._raise(r)
+            return r.json()
+
     async def traverse(self, node_id: str, max_hops: int = 2) -> dict:
         async with self._client() as c:
             r = await c.post(

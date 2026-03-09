@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.schemas import QueryRequest
-from query.rag_pipeline import GraphRAGPipeline, QueryOptions, RAGResponse
+from query.rag_pipeline import GraphRAGPipeline, QueryOptions, RAGResponse, RetrievalResult
 from utils.logger import logger
 
 router = APIRouter(tags=["query"])
@@ -32,6 +32,31 @@ async def query_rag(body: QueryRequest) -> RAGResponse:
             traceback=traceback.format_exc(),
         )
         raise HTTPException(status_code=500, detail=f"Query failed: {exc}")
+    return result
+
+
+@router.post("/query/context", response_model=RetrievalResult)
+async def retrieve_context(body: QueryRequest) -> RetrievalResult:
+    """Retrieve context (documents + graph) WITHOUT calling the LLM.
+
+    Returns the assembled system message plus structured metadata so that
+    the caller (e.g. knowledge-graph-agents) can run its own LLM generation.
+    """
+    pipeline = GraphRAGPipeline()
+    try:
+        result = await pipeline.retrieve(
+            user_query=body.query,
+            thread_id=body.thread_id,
+            options=QueryOptions(top_k=body.top_k, max_hops=body.max_hops),
+        )
+    except Exception as exc:
+        logger.error(
+            "retrieve_context_error",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            traceback=traceback.format_exc(),
+        )
+        raise HTTPException(status_code=500, detail=f"Context retrieval failed: {exc}")
     return result
 
 

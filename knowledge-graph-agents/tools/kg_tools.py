@@ -67,6 +67,27 @@ async def kg_query_tool(
     })
 
 
+async def kg_retrieve_context_tool(
+    query: str,
+    thread_id: str,
+    top_k: int = 10,
+    max_hops: int = 2,
+) -> dict:
+    """kg_retrieve_context — retrieve docs + graph context WITHOUT LLM generation.
+
+    Returns:
+        RetrievalResult dict with ``context_message``, ``sources``,
+        ``nodes_used``, ``edges_used``, ``query_intent``,
+        ``processing_time_ms``, ``has_documents``.
+    """
+    return await _call("kg_retrieve_context", {
+        "query": query,
+        "thread_id": thread_id,
+        "top_k": top_k,
+        "max_hops": max_hops,
+    })
+
+
 # ── Ingest ────────────────────────────────────────────────────────────────────
 
 async def kg_ingest_tool(
