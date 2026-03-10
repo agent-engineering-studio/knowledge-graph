@@ -30,7 +30,7 @@ TOTAL=$(echo "$MODELS" | wc -w)
 CURRENT=0
 for MODEL in $MODELS; do
   CURRENT=$((CURRENT + 1))
-  if ollama list 2>/dev/null | grep -q "${MODEL}"; then
+  if ollama show "${MODEL}" > /dev/null 2>&1; then
     log "[${CURRENT}/${TOTAL}] Model '${MODEL}' already present — skipping pull."
   else
     log "[${CURRENT}/${TOTAL}] Pulling model '${MODEL}'... (this may take several minutes)"

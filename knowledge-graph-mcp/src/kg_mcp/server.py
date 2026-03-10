@@ -61,6 +61,30 @@ async def kg_query(
 
 
 @mcp.tool()
+async def kg_retrieve_context(
+    query: str,
+    thread_id: str,
+    top_k: int = 10,
+    max_hops: int = 2,
+) -> str:
+    """Retrieve documents and graph context WITHOUT LLM generation.
+
+    Runs the full hybrid retrieval pipeline (vector search + graph enrichment)
+    and returns structured context for downstream agents to use with their own LLM.
+
+    Args:
+        query: Natural language question to retrieve context for.
+        thread_id: Namespace/partition of the data to search (e.g. "default").
+        top_k: Number of vector search results to retrieve (default 10).
+        max_hops: Maximum graph traversal depth for enrichment (default 2).
+
+    Returns JSON with: context_message (raw docs + graph text), sources,
+    nodes_used, edges_used, query_intent, processing_time_ms, has_documents.
+    """
+    return await tools.kg_retrieve_context(query, thread_id, top_k, max_hops)
+
+
+@mcp.tool()
 async def kg_ingest(
     file_path: str,
     thread_id: str,

@@ -118,6 +118,34 @@ async def kg_traverse(node_id: str, max_hops: int = 2) -> str:
     return _fmt(result)
 
 
+async def kg_retrieve_context(
+    query: str,
+    thread_id: str,
+    top_k: int = 10,
+    max_hops: int = 2,
+) -> str:
+    """Retrieve documents + graph context WITHOUT LLM generation.
+
+    Calls the same retrieval pipeline as kg_query but remaps the response to
+    the RetrievalResult format expected by agent consumers:
+      - context_message: structured text with docs + graph nodes (no LLM answer)
+      - sources: list of source references
+      - nodes_used / edges_used: graph enrichment
+      - has_documents: True if any sources or graph nodes were found
+    """
+    result = await client.query(query, thread_id, top_k, max_hops)
+    retrieval = {
+        "context_message": result.get("answer", ""),
+        "sources": result.get("sources", []),
+        "nodes_used": result.get("nodes_used", []),
+        "edges_used": result.get("edges_used", []),
+        "query_intent": result.get("query_intent", ""),
+        "processing_time_ms": result.get("processing_time_ms", 0),
+        "has_documents": bool(result.get("sources")) or bool(result.get("nodes_used")),
+    }
+    return _fmt(retrieval)
+
+
 async def kg_cypher(query: str, params: dict[str, Any] | None = None) -> str:
     """Execute a read-only Cypher query against the Neo4j graph database.
 
