@@ -2,13 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  clearConversationHistory,
   getAgentRuns,
+  getConversationHistory,
   postAgentRun,
   uploadAndRunAgent,
   type AgentPlanStep,
   type AgentRunRecord,
   type AgentRunResponse,
+  type ConversationTurn,
 } from "@/lib/api-client";
+import {
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Center,
+  HStack,
+  IconButton,
+  Input,
+  Spinner,
+  Stack,
+  Tabs,
+  Text,
+  Textarea,
+} from "@chakra-ui/react";
 
 interface Message {
   role: "user" | "agent";
@@ -26,6 +44,10 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<AgentRunRecord[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<string>("conversations");
+  const [convHistory, setConvHistory] = useState<ConversationTurn[]>([]);
+  const [convLoading, setConvLoading] = useState(false);
+  const [convClearing, setConvClearing] = useState(false);
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,7 +58,7 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const loadHistory = useCallback(async () => {
+  const loadRuns = useCallback(async () => {
     try {
       const runs = await getAgentRuns(20);
       setHistory(runs);
@@ -45,9 +67,40 @@ export default function ChatPage() {
     }
   }, []);
 
+  const loadConvHistory = useCallback(async (tid: string) => {
+    setConvLoading(true);
+    try {
+      const turns = await getConversationHistory(tid);
+      setConvHistory(turns);
+    } catch {
+      setConvHistory([]);
+    } finally {
+      setConvLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (showHistory) loadHistory();
-  }, [showHistory, loadHistory]);
+    if (showHistory && sidebarTab === "conversations") {
+      loadConvHistory(threadId);
+    }
+  }, [showHistory, sidebarTab, threadId, loadConvHistory]);
+
+  useEffect(() => {
+    if (showHistory && sidebarTab === "runs") loadRuns();
+  }, [showHistory, sidebarTab, loadRuns]);
+
+  const handleClearConv = useCallback(async () => {
+    if (!window.confirm("Eliminare la cronologia conversazione per il thread " + JSON.stringify(threadId) + "?")) return;
+    setConvClearing(true);
+    try {
+      await clearConversationHistory(threadId);
+      setConvHistory([]);
+    } catch {
+      // best-effort
+    } finally {
+      setConvClearing(false);
+    }
+  }, [threadId]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -57,8 +110,9 @@ export default function ChatPage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const fileName = attachedFile?.name ?? "";
     const userContent = attachedFile
-      ? `[${attachedFile.name}]${text ? `\n${text}` : ""}`
+      ? "[" + fileName + "]" + (text ? "\n" + text : "")
       : text;
 
     setInput("");
@@ -74,10 +128,10 @@ export default function ChatPage() {
       } else {
         res = await postAgentRun({ request: text, thread_id: threadId }, ctrl.signal);
       }
-      setMessages((prev) => [
-        ...prev,
-        { role: "agent", content: res.output, meta: res },
-      ]);
+      setMessages((prev) => [...prev, { role: "agent", content: res.output, meta: res }]);
+      if (showHistory && sidebarTab === "conversations") {
+        loadConvHistory(threadId);
+      }
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Agent request failed");
@@ -85,7 +139,7 @@ export default function ChatPage() {
     } finally {
       setLoading(false);
     }
-  }, [input, attachedFile, threadId, loading]);
+  }, [input, attachedFile, threadId, loading, showHistory, sidebarTab, loadConvHistory]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -101,208 +155,244 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] space-y-0">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-4">
+    <Stack gap={0} style={{ height: "calc(100vh - 80px)" }}>
+      <HStack justify="space-between" pb={4}>
         <div>
-          <h1 className="text-2xl font-bold">Agent Chat</h1>
-          <p className="text-gray-600 text-sm mt-0.5">
-            Multi-agent orchestration — queries are routed through specialist agents.
-          </p>
+          <Text fontSize="3xl" fontWeight={700}>Agent Chat</Text>
+          <Text color="gray.500" fontSize="sm">Multi-agent orchestration — queries are routed through specialist agents.</Text>
         </div>
-        <div className="flex items-center gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-0.5">Thread ID</label>
-            <input
+        <HStack gap={3}>
+          <Box>
+            <Box as="label" fontSize="xs" fontWeight={500} mb={1} display="block">Thread ID</Box>
+            <Input
               value={threadId}
               onChange={(e) => setThreadId(e.target.value)}
-              className="border rounded px-2 py-1 text-sm w-32"
+              size="sm"
+              w="130px"
             />
-          </div>
-          <button
+          </Box>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setShowHistory((v) => !v)}
-            className="text-xs text-gray-500 hover:text-gray-800 border rounded px-3 py-1.5"
+            alignSelf="flex-end"
           >
-            {showHistory ? "Hide history" : "Run history"}
-          </button>
-        </div>
-      </div>
+            {showHistory ? "Nascondi" : "Cronologia"}
+          </Button>
+        </HStack>
+      </HStack>
 
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* Chat area */}
-        <div className="flex flex-col flex-1 min-h-0">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto bg-white rounded-lg border p-4 space-y-4">
-            {messages.length === 0 && !loading && (
-              <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                Ask the agent anything, or attach a document (PDF/DOCX/TXT) to ingest it…
-              </div>
-            )}
-
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[75%] space-y-2 ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
-                  <div
-                    className={`rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                      msg.role === "user"
-                        ? "bg-blue-600 text-white"
-                        : "bg-gray-100 text-gray-800"
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
-
-                  {/* Agent metadata */}
-                  {msg.meta && (
-                    <div className="text-xs text-gray-400 space-y-1 w-full">
-                      <div className="flex gap-3 flex-wrap">
-                        {msg.meta.intent && <span>Intent: <span className="text-gray-600">{msg.meta.intent}</span></span>}
-                        <span>Time: <span className="text-gray-600">{msg.meta.duration_ms} ms</span></span>
-                        {msg.meta.plan.length > 0 && (
-                          <button
-                            onClick={() => setExpandedPlan(expandedPlan === msg.meta!.run_id ? null : msg.meta!.run_id)}
-                            className="text-blue-500 hover:underline"
-                          >
-                            {expandedPlan === msg.meta.run_id ? "Hide" : "Show"} plan ({msg.meta.plan.length} steps)
-                          </button>
-                        )}
-                      </div>
-
-                      {expandedPlan === msg.meta.run_id && msg.meta.plan.length > 0 && (
-                        <div className="bg-gray-50 rounded p-2 space-y-1 border">
-                          {msg.meta.plan.map((step: AgentPlanStep, si: number) => (
-                            <div key={si} className="flex gap-2">
-                              <span className="text-gray-400 w-4 shrink-0">{si + 1}.</span>
-                              <div>
-                                <span className="font-medium text-gray-600">{step.action ?? "step"}</span>
-                                {step.agent && <span className="ml-2 text-gray-400">({step.agent})</span>}
-                                {step.result && <p className="text-gray-500 mt-0.5">{String(step.result).slice(0, 120)}</p>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+      <HStack gap={4} align="stretch" style={{ flex: 1, minHeight: 0 }}>
+        <Stack gap={3} style={{ flex: 1, minHeight: 0 }}>
+          <Box style={{ flex: 1, overflowY: "auto" }}>
+            <Box borderWidth="1px" borderRadius="md" p={4} minH="200px">
+              {messages.length === 0 && !loading && (
+                <Center h="120px">
+                  <Text color="gray.500" fontSize="sm">Ask the agent anything, or attach a document (PDF/DOCX/TXT) to ingest it</Text>
+                </Center>
+              )}
+              <Stack gap={3}>
+                {messages.map((msg, i) => (
+                  <Box key={i} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                    <Stack gap={1} style={{ maxWidth: "75%", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+                      <Box px={3} py={2} borderRadius="md" bg={msg.role === "user" ? "blue.600" : "gray.100"}>
+                        <Text fontSize="sm" style={{ whiteSpace: "pre-wrap", color: msg.role === "user" ? "white" : "#2d3748" }}>
+                          {msg.content}
+                        </Text>
+                      </Box>
+                      {msg.meta && (
+                        <Stack gap={1}>
+                          <HStack gap={3}>
+                            {msg.meta.intent && (
+                              <Text fontSize="xs" color="gray.500">Intent: <Text as="span" color="gray.700">{msg.meta.intent}</Text></Text>
+                            )}
+                            <Text fontSize="xs" color="gray.500">Time: <Text as="span" color="gray.700">{msg.meta.duration_ms} ms</Text></Text>
+                            {msg.meta.plan.length > 0 && (
+                              <Text
+                                fontSize="xs"
+                                color="blue.400"
+                                cursor="pointer"
+                                onClick={() => setExpandedPlan(expandedPlan === msg.meta!.run_id ? null : msg.meta!.run_id)}
+                              >
+                                {expandedPlan === msg.meta.run_id ? "Hide" : "Show"} plan ({msg.meta.plan.length} steps)
+                              </Text>
+                            )}
+                          </HStack>
+                          {expandedPlan === msg.meta.run_id && msg.meta.plan.length > 0 && (
+                            <Box borderWidth="1px" borderRadius="md" p={2}>
+                              <Stack gap={1}>
+                                {msg.meta.plan.map((step: AgentPlanStep, si: number) => (
+                                  <HStack key={si} gap={2} align="flex-start">
+                                    <Text fontSize="xs" color="gray.500" w={4}>{si + 1}.</Text>
+                                    <Box>
+                                      <Text fontSize="xs" fontWeight={500} color="gray.700">{step.action ?? "step"}</Text>
+                                      {step.agent && <Text as="span" fontSize="xs" color="gray.500"> ({step.agent})</Text>}
+                                      {step.result && <Text fontSize="xs" color="gray.500">{String(step.result).slice(0, 120)}</Text>}
+                                    </Box>
+                                  </HStack>
+                                ))}
+                              </Stack>
+                            </Box>
+                          )}
+                          {msg.meta.error && (
+                            <Text fontSize="xs" color="red.400">Error: {msg.meta.error}</Text>
+                          )}
+                        </Stack>
                       )}
+                    </Stack>
+                  </Box>
+                ))}
+                {loading && (
+                  <Box style={{ display: "flex", justifyContent: "flex-start" }}>
+                    <Box px={3} py={2} borderRadius="md" bg="gray.100">
+                      <HStack gap={2}>
+                        <Spinner size="xs" />
+                        <Text fontSize="sm" color="gray.500">{attachedFile ? "Ingesting document" : "Agent is thinking"}</Text>
+                      </HStack>
+                    </Box>
+                  </Box>
+                )}
+                <div ref={bottomRef} />
+              </Stack>
+            </Box>
+          </Box>
 
-                      {msg.meta.error && (
-                        <p className="text-red-500">Error: {msg.meta.error}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="bg-gray-100 rounded-lg px-4 py-2.5 text-sm text-gray-400 animate-pulse">
-                  {attachedFile ? "Ingesting document…" : "Agent is thinking…"}
-                </div>
-              </div>
-            )}
-
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Error */}
           {error && (
-            <div className="mt-2 bg-red-50 border border-red-200 text-red-700 rounded p-2 text-sm">
-              {error}
-            </div>
+            <Alert.Root status="error">
+              <Alert.Description>{error}</Alert.Description>
+            </Alert.Root>
           )}
 
-          {/* Attached file badge */}
           {attachedFile && (
-            <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded px-3 py-1.5 text-sm text-blue-700">
-              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-              <span className="truncate flex-1">{attachedFile.name}</span>
-              <button onClick={() => setAttachedFile(null)} className="text-blue-400 hover:text-blue-700 shrink-0">✕</button>
-            </div>
+            <Alert.Root status="info">
+              <Alert.Description>
+                <HStack justify="space-between">
+                  <Text fontSize="sm" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {attachedFile.name}
+                  </Text>
+                  <IconButton aria-label="Remove attachment" size="xs" variant="ghost" colorPalette="blue" onClick={() => setAttachedFile(null)}>
+                    x
+                  </IconButton>
+                </HStack>
+              </Alert.Description>
+            </Alert.Root>
           )}
 
-          {/* Input */}
-          <div className="mt-3 flex gap-2 items-end">
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPTED_TYPES}
-              onChange={handleFileChange}
-              className="hidden"
-            />
-
-            {/* Attach button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={loading}
-              title="Attach document (PDF, DOCX, TXT)"
-              className="border rounded p-2 text-gray-400 hover:text-blue-600 hover:border-blue-400 disabled:opacity-40 shrink-0"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-            </button>
-
-            <textarea
+          <HStack gap={3} align="flex-end">
+            <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} onChange={handleFileChange} style={{ display: "none" }} />
+            <IconButton aria-label="Attach document (PDF, DOCX, TXT)" variant="outline" size="lg" disabled={loading} onClick={() => fileInputRef.current?.click()}>
+              📎
+            </IconButton>
+            <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
-              placeholder={
-                attachedFile
-                  ? "Optional message… (Enter to ingest)"
-                  : "Ask a question… (Enter to send, Shift+Enter for newline)"
-              }
-              className="flex-1 border rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder={attachedFile ? "Optional message (Enter to ingest)" : "Ask a question (Enter to send, Shift+Enter for newline)"}
+              style={{ flex: 1 }}
             />
-            <div className="flex flex-col gap-1">
-              <button
-                onClick={handleSend}
-                disabled={loading || (!input.trim() && !attachedFile)}
-                className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? "…" : attachedFile ? "Ingest" : "Send"}
-              </button>
+            <Stack gap={1}>
+              <Button onClick={handleSend} loading={loading} disabled={!input.trim() && !attachedFile} colorPalette="blue">
+                {attachedFile ? "Ingest" : "Send"}
+              </Button>
               {messages.length > 0 && (
-                <button
-                  onClick={() => setMessages([])}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-2"
-                >
+                <Button variant="ghost" colorPalette="gray" size="xs" onClick={() => setMessages([])}>
                   Clear
-                </button>
+                </Button>
               )}
-            </div>
-          </div>
-        </div>
+            </Stack>
+          </HStack>
+        </Stack>
 
-        {/* Run history sidebar */}
         {showHistory && (
-          <div className="w-72 shrink-0 bg-white rounded-lg border p-4 overflow-y-auto">
-            <h3 className="font-semibold text-sm mb-3">Recent Runs</h3>
-            {history.length === 0 ? (
-              <p className="text-xs text-gray-400">No runs yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {history.map((run) => (
-                  <li key={run.run_id} className="text-xs border rounded p-2 space-y-0.5">
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`font-medium ${run.status === "success" ? "text-green-600" : "text-red-500"}`}
-                      >
-                        {run.status}
-                      </span>
-                      <span className="text-gray-400">{run.duration_ms} ms</span>
-                    </div>
-                    <p className="text-gray-600 truncate" title={run.input_summary}>{run.input_summary}</p>
-                    <p className="text-gray-400">Intent: {run.intent}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <Box borderWidth="1px" borderRadius="md" w="300px" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <Tabs.Root value={sidebarTab} onValueChange={(e) => setSidebarTab(e.value)} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+              <Tabs.List>
+                <Tabs.Trigger value="conversations" style={{ flex: 1 }}>Conversazioni</Tabs.Trigger>
+                <Tabs.Trigger value="runs" style={{ flex: 1 }}>Run History</Tabs.Trigger>
+              </Tabs.List>
+
+              <Tabs.Content value="conversations" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <HStack justify="space-between" px={3} py={2} borderBottomWidth="1px">
+                  <Text fontSize="xs" color="gray.500">
+                    Thread: <Text as="span" fontWeight={500} color="gray.800">{threadId}</Text>
+                  </Text>
+                  <HStack gap={1}>
+                    <IconButton aria-label="Refresh" size="xs" variant="ghost" loading={convLoading} onClick={() => loadConvHistory(threadId)}>
+                      ↻
+                    </IconButton>
+                    {convHistory.length > 0 && (
+                      <Button size="xs" variant="ghost" colorPalette="red" loading={convClearing} onClick={handleClearConv}>
+                        Cancella
+                      </Button>
+                    )}
+                  </HStack>
+                </HStack>
+                <Box style={{ flex: 1, overflowY: "auto" }} p={2}>
+                  {convLoading ? (
+                    <Center py={6}><Spinner size="sm" /></Center>
+                  ) : convHistory.length === 0 ? (
+                    <Center py={6}>
+                      <Stack align="center" gap={1}>
+                        <Text fontSize="xl">💬</Text>
+                        <Text fontSize="xs" color="gray.500">Nessuna conversazione salvata</Text>
+                        <Text fontSize="xs" color="gray.500">per il thread &ldquo;{threadId}&rdquo;</Text>
+                      </Stack>
+                    </Center>
+                  ) : (
+                    <Stack gap={2}>
+                      {convHistory.map((turn, i) => (
+                        <Box key={i} style={{ display: "flex", justifyContent: turn.role === "user" ? "flex-end" : "flex-start" }}>
+                          <Box px={2} py={1} borderRadius="md" maxW="85%" bg={turn.role === "user" ? "blue.50" : "gray.50"} borderWidth="1px" borderColor={turn.role === "user" ? "blue.100" : "gray.200"}>
+                            <Text fontSize="xs" fontWeight={600} color={turn.role === "user" ? "blue.400" : "gray.500"} mb={1}>
+                              {turn.role === "user" ? "Tu" : "Agente"}
+                            </Text>
+                            <Text fontSize="xs" style={{ whiteSpace: "pre-wrap" }}>
+                              {turn.content}
+                            </Text>
+                          </Box>
+                        </Box>
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </Tabs.Content>
+
+              <Tabs.Content value="runs" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                <Box p={3}>
+                  <HStack justify="space-between" mb={3}>
+                    <Text fontSize="xs" fontWeight={600} color="gray.700">Esecuzioni recenti</Text>
+                    <IconButton aria-label="Refresh" size="xs" variant="ghost" onClick={loadRuns}>↻</IconButton>
+                  </HStack>
+                  {history.length === 0 ? (
+                    <Text fontSize="xs" color="gray.500">Nessun run ancora.</Text>
+                  ) : (
+                    <Stack gap={2}>
+                      {history.map((run) => (
+                        <Box key={run.run_id} borderWidth="1px" borderRadius="md" p={2}>
+                          <HStack justify="space-between" mb={1}>
+                            <Badge size="xs" colorPalette={run.status === "success" ? "green" : "red"} variant="subtle">{run.status}</Badge>
+                            <Text fontSize="xs" color="gray.500">{run.duration_ms} ms</Text>
+                          </HStack>
+                          <Text fontSize="xs" color="gray.700" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" title={run.input_summary}>{run.input_summary}</Text>
+                          <HStack gap={2} mt={1}>
+                            <Text fontSize="xs" color="gray.500">Intent: {run.intent}</Text>
+                            {run.tool_calls.length > 0 && (
+                              <Text fontSize="xs" color="gray.500" title={run.tool_calls.join(", ")}>
+                                - {run.tool_calls.length} tool{run.tool_calls.length !== 1 ? "s" : ""}
+                              </Text>
+                            )}
+                          </HStack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+              </Tabs.Content>
+            </Tabs.Root>
+          </Box>
         )}
-      </div>
-    </div>
+      </HStack>
+    </Stack>
   );
 }

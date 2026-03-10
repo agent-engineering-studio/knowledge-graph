@@ -1,30 +1,30 @@
-"""Unit tests for the multi-agent Knowledge Graph system.
+"""Unit tests for the multi-agent Knowledge Graph system (Microsoft Agent Framework).
 
-All tests use ``unittest.mock`` to patch httpx calls so no live services are
+All tests use ``unittest.mock`` to patch external calls so no live services are
 required.
 """
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from orchestration.router import classify_intent
+from agents.orchestrator import classify_intent
 from orchestration.state import Intent
 from orchestration.planner import build_plan
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _mock_response(data: dict, status_code: int = 200):
-    """Create a mock httpx.Response-like object."""
-    mock = AsyncMock()
-    mock.status_code = status_code
-    mock.json.return_value = data
-    mock.raise_for_status = AsyncMock()
-    return mock
+def _maf_agent_mock(return_text: str):
+    """Create a mock MAF agent whose run() returns ``return_text``."""
+    agent = MagicMock()
+    agent.run = AsyncMock(return_value=return_text)
+    session = MagicMock()
+    session.state = {}
+    agent.create_session = MagicMock(return_value=session)
+    return agent
 
 
 # ── Intent classification ─────────────────────────────────────────────────────
@@ -41,153 +41,81 @@ def _mock_response(data: dict, status_code: int = 200):
     ("frase senza pattern specifico", Intent.QUERY),  # fallback
 ])
 def test_intent_classification(text: str, expected: Intent):
-    result = classify_intent(text)
-    assert result == expected
+    assert classify_intent(text) == expected
 
 
 # ── Planner ───────────────────────────────────────────────────────────────────
 
 def test_build_plan_ingest():
-    plan = build_plan(Intent.INGEST)
-    agents = [s.agent for s in plan]
+    agents = [s.agent for s in build_plan(Intent.INGEST)]
     assert "ingestion" in agents
     assert "validator" in agents
 
 
 def test_build_plan_synthesize():
-    plan = build_plan(Intent.SYNTHESIZE)
-    agents = [s.agent for s in plan]
-    assert "synthesis" in agents
+    assert any(s.agent == "synthesis" for s in build_plan(Intent.SYNTHESIZE))
 
 
 def test_build_plan_kgc():
-    plan = build_plan(Intent.KGC)
-    agents = [s.agent for s in plan]
+    agents = [s.agent for s in build_plan(Intent.KGC)]
     assert "kgc" in agents
     assert "synthesis" in agents
+
+
+# ── Analyst Agent ─────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_analyst_agent_returns_answer():
+    mock_agent = _maf_agent_mock("Hevolus è una società specializzata in AR enterprise.")
+    with patch("agents.analyst.create_analyst_agent", return_value=mock_agent):
+        from agents.analyst import run_analyst
+        result = await run_analyst("cosa sai su Hevolus?", "default")
+    assert "Hevolus" in result
+    mock_agent.run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_analyst_session_thread_id():
+    """session.state must contain thread_id before agent.run() is called."""
+    captured: dict = {}
+
+    mock_agent = MagicMock()
+    session = MagicMock()
+    session.state = {}
+    mock_agent.create_session = MagicMock(return_value=session)
+
+    async def capture_run(message, *, session):
+        captured.update(session.state)
+        return "answer"
+
+    mock_agent.run = capture_run
+
+    with patch("agents.analyst.create_analyst_agent", return_value=mock_agent):
+        from agents.analyst import run_analyst
+        await run_analyst("test query", "my-namespace")
+
+    assert captured.get("thread_id") == "my-namespace"
 
 
 # ── Ingestion Agent ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_ingestion_agent_success():
-    from agents.ingestion import ingestion_node
-
-    ingest_response = {
-        "document_id": "doc-123",
-        "chunks_processed": 45,
-        "chunks_skipped": 0,
-        "entities_extracted": 12,
-        "relations_extracted": 8,
-        "nodes_created": 12,
-        "edges_created": 8,
-        "processing_time_ms": 1234.5,
-        "errors": [],
-    }
-    health_response = {"status": "ok", "neo4j": True, "redis": True, "ollama": True}
-    docs_response = {"documents": []}
-
-    with (
-        patch("tools.kg_tools.httpx.AsyncClient") as mock_cls,
-    ):
-        instance = AsyncMock()
-        mock_cls.return_value.__aenter__ = AsyncMock(return_value=instance)
-        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        instance.get.return_value = _mock_response(health_response)
-        instance.post.return_value = _mock_response(ingest_response)
-
-        # list_documents uses GET
-        instance.get.side_effect = [
-            _mock_response(health_response),
-            _mock_response(docs_response),
-        ]
-        instance.post.return_value = _mock_response(ingest_response)
-
-        state = {
-            "user_request": "carica doc.pdf",
-            "intent": "ingest",
-            "plan": [],
-            "current_step": 0,
-            "context": {"file_path": "/data/doc.pdf"},
-            "final_output": None,
-            "error": None,
-            "thread_id": "default",
-            "run_id": "run-001",
-        }
-
-        result = await ingestion_node(state)
-
-    assert result["error"] is None
-    assert "doc.pdf" in result["final_output"]
-
-
-@pytest.mark.asyncio
-async def test_ingestion_agent_missing_file():
-    from agents.ingestion import ingestion_node
-
-    state = {
-        "user_request": "carica",
-        "intent": "ingest",
-        "plan": [],
-        "current_step": 0,
-        "context": {},  # no file_path
-        "final_output": None,
-        "error": None,
-        "thread_id": "default",
-        "run_id": "run-002",
-    }
-    result = await ingestion_node(state)
-    assert result["error"] is not None
-    assert "file_path" in result["error"]
-
-
-# ── Analyst Agent ─────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_analyst_agent_vector():
-    from agents.analyst import analyst_node
-
-    rag_response = {
-        "answer": "Hevolus è una società specializzata in AR enterprise.",
-        "sources": [{"doc_id": "d1", "text_preview": "...", "score": 0.9}],
-        "nodes_used": ["node-1"],
-        "edges_used": [],
-        "query_intent": "entity_query",
-        "processing_time_ms": 890.0,
-    }
-
-    with patch("tools.kg_tools.httpx.AsyncClient") as mock_cls:
-        instance = AsyncMock()
-        mock_cls.return_value.__aenter__ = AsyncMock(return_value=instance)
-        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-        instance.post.return_value = _mock_response(rag_response)
-
-        state = {
-            "user_request": "cosa sai su Hevolus?",
-            "intent": "query",
-            "plan": [],
-            "current_step": 0,
-            "context": {"analyst_strategy": "vector", "query": "cosa sai su Hevolus?"},
-            "final_output": None,
-            "error": None,
-            "thread_id": "default",
-            "run_id": "run-003",
-        }
-
-        result = await analyst_node(state)
-
-    assert result["error"] is None
-    assert "Hevolus" in result["final_output"]
+    mock_agent = _maf_agent_mock(
+        "Documento 'doc.pdf' ingestito con successo.\n- Chunks processati: 45"
+    )
+    with patch("agents.ingestion.create_ingestion_agent", return_value=mock_agent):
+        from agents.ingestion import run_ingestion
+        result = await run_ingestion("carica /data/doc.pdf", "default")
+    assert len(result) > 0
 
 
 # ── Validator Agent ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_validator_agent():
-    from agents.validator import validator_node
-
-    cypher_responses = [
+async def test_validator_quality_report():
+    """compute_quality_report returns correct metrics from Cypher results."""
+    responses = [
         {"results": [{"orphan_count": 3}]},
         {"results": [{"node_count": 50}]},
         {"results": [{"rel_count": 120}]},
@@ -195,75 +123,69 @@ async def test_validator_agent():
     ]
     call_count = 0
 
-    async def fake_cypher_tool(query, namespace, params=None):
+    async def fake_cypher(query, namespace, params=None):
         nonlocal call_count
-        resp = cypher_responses[call_count % len(cypher_responses)]
+        resp = responses[call_count % len(responses)]
         call_count += 1
         return resp
 
-    with patch("agents.validator.kg_cypher_tool", side_effect=fake_cypher_tool):
-        state = {
-            "user_request": "verifica qualità",
-            "intent": "validate",
-            "plan": [],
-            "current_step": 0,
-            "context": {},
-            "final_output": None,
-            "error": None,
-            "thread_id": "default",
-            "run_id": "run-004",
-        }
+    with patch("agents.validator.kg_cypher_tool", side_effect=fake_cypher):
+        from agents.validator import compute_quality_report
+        report = await compute_quality_report("default")
 
-        result = await validator_node(state)
-
-    assert result["error"] is None
-    assert "quality_report" in result["context"]
-    assert result["context"]["quality_report"]["total_nodes"] == 50
+    assert report.total_nodes == 50
+    assert report.total_relations == 120
+    assert report.orphan_nodes == 3
+    assert report.overall_health > 0
 
 
-# ── Orchestrator ──────────────────────────────────────────────────────────────
+# ── Orchestrator dispatch ─────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_orchestrator_plan_ingest():
-    from agents.orchestrator import orchestrator_node
+async def test_orchestrator_dispatch_query():
+    with patch("agents.orchestrator.run_analyst", new=AsyncMock(return_value="Answer")):
+        from agents.orchestrator import dispatch
+        result = await dispatch("cosa sai su Hevolus?", "default")
+    assert result.intent == Intent.QUERY
+    assert "analyst" in result.steps
 
+
+@pytest.mark.asyncio
+async def test_orchestrator_dispatch_ingest():
+    with (
+        patch("agents.orchestrator.run_ingestion", new=AsyncMock(return_value="Ingestito")),
+        patch("agents.orchestrator.run_validator", new=AsyncMock(return_value=("QR", None))),
+    ):
+        from agents.orchestrator import dispatch
+        result = await dispatch("carica il documento", "default", context={"file_path": "/tmp/x.pdf"})
+    assert result.intent == Intent.INGEST
+    assert "ingestion" in result.steps
+    assert "validator" in result.steps
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_shim_plan_ingest():
+    from agents.orchestrator import orchestrator_node
     state = {
         "user_request": "carica il documento report.pdf",
-        "intent": None,
-        "plan": [],
-        "current_step": 0,
-        "context": {},
-        "final_output": None,
-        "error": None,
-        "thread_id": "default",
-        "run_id": "run-005",
+        "intent": None, "plan": [], "current_step": 0,
+        "context": {}, "final_output": None, "error": None,
+        "thread_id": "default", "run_id": "run-005",
     }
-
     result = await orchestrator_node(state)
-
     assert result["intent"] == Intent.INGEST.value
-    agents_in_plan = [s["agent"] for s in result["plan"]]
-    assert "ingestion" in agents_in_plan
+    assert any(s["agent"] == "ingestion" for s in result["plan"])
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_plan_query():
+async def test_orchestrator_shim_plan_query():
     from agents.orchestrator import orchestrator_node
-
     state = {
         "user_request": "cosa sai su intelligenza artificiale?",
-        "intent": None,
-        "plan": [],
-        "current_step": 0,
-        "context": {},
-        "final_output": None,
-        "error": None,
-        "thread_id": "default",
-        "run_id": "run-006",
+        "intent": None, "plan": [], "current_step": 0,
+        "context": {}, "final_output": None, "error": None,
+        "thread_id": "default", "run_id": "run-006",
     }
-
     result = await orchestrator_node(state)
-
     assert result["intent"] == Intent.QUERY.value
-    agents_in_plan = [s["agent"] for s in result["plan"]]
-    assert "analyst" in agents_in_plan
+    assert any(s["agent"] == "analyst" for s in result["plan"])

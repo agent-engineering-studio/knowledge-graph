@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { deleteDocument, listDocuments, type DocumentRecord } from "@/lib/api-client";
+import { Alert, IconButton, Spinner, Table, Text } from "@chakra-ui/react";
 
 interface Props {
   namespace: string;
@@ -44,49 +45,63 @@ export function DocumentList({ namespace, refreshTrigger }: Props) {
     }
   }, []);
 
-  if (loading) return <p className="text-sm text-gray-500">Loading documents…</p>;
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (docs.length === 0)
-    return <p className="text-sm text-gray-400">No documents in namespace "{namespace}".</p>;
+  if (loading) return <Spinner size="sm" />;
+  if (error) return <Alert.Root status="error"><Alert.Description>{error}</Alert.Description></Alert.Root>;
+  if (docs.length === 0) {
+    return <Text fontSize="sm" color="gray.500">No documents in namespace &ldquo;{namespace}&rdquo;.</Text>;
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
-            <th className="px-3 py-2 border-b">Name</th>
-            <th className="px-3 py-2 border-b">Type</th>
-            <th className="px-3 py-2 border-b">Pages</th>
-            <th className="px-3 py-2 border-b">Chunks</th>
-            <th className="px-3 py-2 border-b">Created</th>
-            <th className="px-3 py-2 border-b" />
-          </tr>
-        </thead>
-        <tbody>
-          {docs.map((doc) => (
-            <tr key={doc.base_document_id} className="hover:bg-gray-50 border-b last:border-0">
-              <td className="px-3 py-2 font-medium truncate max-w-55" title={doc.name}>
+    <Table.Root striped>
+      <Table.Header>
+        <Table.Row>
+          <Table.ColumnHeader>Name</Table.ColumnHeader>
+          <Table.ColumnHeader>Type</Table.ColumnHeader>
+          <Table.ColumnHeader>Pages</Table.ColumnHeader>
+          <Table.ColumnHeader>Chunks</Table.ColumnHeader>
+          <Table.ColumnHeader>Created</Table.ColumnHeader>
+          <Table.ColumnHeader />
+        </Table.Row>
+      </Table.Header>
+      <Table.Body>
+        {docs.map((doc) => (
+          <Table.Row key={doc.base_document_id}>
+            <Table.Cell>
+              <Text
+                fontSize="sm"
+                fontWeight={500}
+                maxW="220px"
+                overflow="hidden"
+                textOverflow="ellipsis"
+                whiteSpace="nowrap"
+                title={doc.name}
+              >
                 {doc.name}
-              </td>
-              <td className="px-3 py-2 text-gray-500">{doc.mime_type || "—"}</td>
-              <td className="px-3 py-2 text-gray-500">{doc.total_pages || "—"}</td>
-              <td className="px-3 py-2 text-gray-500">{doc.chunk_count}</td>
-              <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+              </Text>
+            </Table.Cell>
+            <Table.Cell><Text fontSize="sm" color="gray.500">{doc.mime_type || "—"}</Text></Table.Cell>
+            <Table.Cell><Text fontSize="sm" color="gray.500">{doc.total_pages || "—"}</Text></Table.Cell>
+            <Table.Cell><Text fontSize="sm" color="gray.500">{doc.chunk_count}</Text></Table.Cell>
+            <Table.Cell>
+              <Text fontSize="sm" color="gray.500" whiteSpace="nowrap">
                 {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "—"}
-              </td>
-              <td className="px-3 py-2 text-right">
-                <button
-                  onClick={() => handleDelete(doc.base_document_id)}
-                  disabled={deleting === doc.base_document_id}
-                  className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
-                >
-                  {deleting === doc.base_document_id ? "Deleting…" : "Delete"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+              </Text>
+            </Table.Cell>
+            <Table.Cell>
+              <IconButton
+                aria-label="Delete document"
+                colorPalette="red"
+                variant="ghost"
+                size="sm"
+                loading={deleting === doc.base_document_id}
+                onClick={() => handleDelete(doc.base_document_id)}
+              >
+                ✕
+              </IconButton>
+            </Table.Cell>
+          </Table.Row>
+        ))}
+      </Table.Body>
+    </Table.Root>
   );
 }

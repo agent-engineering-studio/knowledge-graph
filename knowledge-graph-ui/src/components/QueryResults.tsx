@@ -1,100 +1,108 @@
 "use client";
 
-import { useState } from "react";
 import type { RAGResponse } from "@/lib/api-client";
+import {
+  Accordion,
+  Alert,
+  Badge,
+  Box,
+  Code,
+  HStack,
+  Stack,
+  Text,
+} from "@chakra-ui/react";
 
 interface Props {
   result: RAGResponse | null;
-}
-
-function Collapsible({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  if (count === 0) return null;
-  return (
-    <div className="bg-white rounded-lg border">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold hover:bg-gray-50 transition-colors"
-      >
-        <span>{title} <span className="font-normal text-gray-500">({count})</span></span>
-        <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && <div className="px-5 pb-4">{children}</div>}
-    </div>
-  );
 }
 
 export function QueryResults({ result }: Props) {
   if (!result) return null;
 
   return (
-    <div className="space-y-4">
+    <Stack gap={4}>
       {/* Semantic search results */}
       {result.sources.length > 0 && (
-        <div className="bg-white rounded-lg border p-5">
-          <h3 className="font-semibold mb-3">Risultati ricerca semantica ({result.sources.length})</h3>
-          <div className="space-y-3">
+        <Box borderWidth="1px" borderRadius="md" p={4}>
+          <Text fontWeight={600} mb={3}>
+            Risultati ricerca semantica ({result.sources.length})
+          </Text>
+          <Stack gap={3}>
             {result.sources.map((s, i) => (
-              <div key={i} className="bg-gray-50 rounded p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
+              <Box key={i} borderWidth="1px" borderRadius="md" p={3} bg="gray.50">
+                <HStack gap={2} mb={1} flexWrap="wrap">
                   {s.document_name && (
-                    <span className="font-medium text-gray-800">{s.document_name}</span>
+                    <Text fontSize="sm" fontWeight={500}>{s.document_name}</Text>
                   )}
                   {s.page_number != null && (
-                    <span className="text-gray-500 text-xs">
+                    <Text fontSize="xs" color="gray.500">
                       p.{s.page_number + 1}{s.total_pages ? `/${s.total_pages}` : ""}
-                    </span>
+                    </Text>
                   )}
-                  <span className="text-gray-400 text-xs font-mono">{s.doc_id.slice(0, 8)}…</span>
-                </div>
-                <p className="text-gray-700 whitespace-pre-wrap">{s.text_preview}</p>
-              </div>
+                  <Code fontSize="xs">{s.doc_id.slice(0, 8)}…</Code>
+                </HStack>
+                <Text fontSize="sm" style={{ whiteSpace: "pre-wrap" }}>{s.text_preview}</Text>
+              </Box>
             ))}
-          </div>
-        </div>
+          </Stack>
+        </Box>
       )}
 
-      {/* Graph nodes */}
-      {result.nodes_used.length > 0 && (
-        <Collapsible title="Nodi del grafo" count={result.nodes_used.length}>
-          <ul className="mt-1 space-y-1">
-            {result.nodes_used.map((node, i) => (
-              <li key={i} className="text-xs bg-blue-50 text-blue-800 rounded px-2 py-1 font-mono">
-                {node}
-              </li>
-            ))}
-          </ul>
-        </Collapsible>
-      )}
-
-      {/* Graph relationships */}
-      {result.edges_used.length > 0 && (
-        <Collapsible title="Relazioni" count={result.edges_used.length}>
-          <ul className="mt-1 space-y-1">
-            {result.edges_used.map((edge, i) => (
-              <li key={i} className="text-xs bg-purple-50 text-purple-800 rounded px-2 py-1 font-mono">
-                {edge}
-              </li>
-            ))}
-          </ul>
-        </Collapsible>
+      {/* Graph nodes & edges */}
+      {(result.nodes_used.length > 0 || result.edges_used.length > 0) && (
+        <Accordion.Root collapsible variant="outline">
+          {result.nodes_used.length > 0 && (
+            <Accordion.Item value="nodes">
+              <Accordion.ItemTrigger>
+                <HStack gap={2}>
+                  <Text fontSize="sm" fontWeight={600}>Nodi del grafo</Text>
+                  <Badge size="sm" colorPalette="blue" variant="subtle">{result.nodes_used.length}</Badge>
+                </HStack>
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Stack gap={1} p={2}>
+                  {result.nodes_used.map((node, i) => (
+                    <Code key={i} colorPalette="blue">{node}</Code>
+                  ))}
+                </Stack>
+              </Accordion.ItemContent>
+            </Accordion.Item>
+          )}
+          {result.edges_used.length > 0 && (
+            <Accordion.Item value="edges">
+              <Accordion.ItemTrigger>
+                <HStack gap={2}>
+                  <Text fontSize="sm" fontWeight={600}>Relazioni</Text>
+                  <Badge size="sm" colorPalette="purple" variant="subtle">{result.edges_used.length}</Badge>
+                </HStack>
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Stack gap={1} p={2}>
+                  {result.edges_used.map((edge, i) => (
+                    <Code key={i} colorPalette="purple">{edge}</Code>
+                  ))}
+                </Stack>
+              </Accordion.ItemContent>
+            </Accordion.Item>
+          )}
+        </Accordion.Root>
       )}
 
       {/* No results */}
       {result.sources.length === 0 && result.nodes_used.length === 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-4 text-sm">
-          {result.answer}
-        </div>
+        <Alert.Root status="warning">
+          <Alert.Description>{result.answer}</Alert.Description>
+        </Alert.Root>
       )}
 
       {/* Metadata */}
-      <div className="flex gap-4 text-xs text-gray-400">
-        <span>Intent: {result.query_intent}</span>
-        <span>Documenti: {result.sources.length}</span>
-        <span>Nodi: {result.nodes_used.length}</span>
-        <span>Relazioni: {result.edges_used.length}</span>
-        <span>Tempo: {result.processing_time_ms.toFixed(0)}ms</span>
-      </div>
-    </div>
+      <HStack gap={6} flexWrap="wrap">
+        <Text fontSize="xs" color="gray.500">Intent: {result.query_intent}</Text>
+        <Text fontSize="xs" color="gray.500">Documenti: {result.sources.length}</Text>
+        <Text fontSize="xs" color="gray.500">Nodi: {result.nodes_used.length}</Text>
+        <Text fontSize="xs" color="gray.500">Relazioni: {result.edges_used.length}</Text>
+        <Text fontSize="xs" color="gray.500">Tempo: {result.processing_time_ms.toFixed(0)}ms</Text>
+      </HStack>
+    </Stack>
   );
 }

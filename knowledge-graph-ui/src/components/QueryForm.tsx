@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Box, Button, HStack, Input, Stack, Textarea } from "@chakra-ui/react";
 
 interface Props {
   onSubmit: (query: string, threadId: string, topK: number, maxHops: number) => void;
@@ -14,62 +15,65 @@ export function QueryForm({ onSubmit, loading }: Props) {
   const [maxHops, setMaxHops] = useState(2);
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (query.trim()) onSubmit(query.trim(), threadId, topK, maxHops);
-      }}
-      className="bg-white rounded-lg border p-5 space-y-4"
-    >
-      <div>
-        <label className="block text-sm font-medium mb-1">Query</label>
-        <textarea
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          rows={3}
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          placeholder="Ask a question about your knowledge graph..."
-        />
-      </div>
-      <div className="flex gap-4 items-end flex-wrap">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Thread ID</label>
-          <input
-            value={threadId}
-            onChange={(e) => setThreadId(e.target.value)}
-            className="border rounded px-2 py-1 text-sm w-32"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Top K</label>
-          <input
-            type="number"
-            value={topK}
-            onChange={(e) => setTopK(Number(e.target.value))}
-            min={1}
-            max={50}
-            className="border rounded px-2 py-1 text-sm w-20"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Max Hops</label>
-          <input
-            type="number"
-            value={maxHops}
-            onChange={(e) => setMaxHops(Number(e.target.value))}
-            min={1}
-            max={5}
-            className="border rounded px-2 py-1 text-sm w-20"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={loading || !query.trim()}
-          className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? "Querying..." : "Search"}
-        </button>
-      </div>
-    </form>
+    <Box borderWidth="1px" borderRadius="md" p={4}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (query.trim()) onSubmit(query.trim(), threadId, topK, maxHops);
+        }}
+      >
+        <Stack gap={3}>
+          <Box>
+            <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Query</Box>
+            <Textarea
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              rows={3}
+              placeholder="Ask a question about your knowledge graph..."
+            />
+          </Box>
+          <HStack align="flex-end" gap={3}>
+            <Box>
+              <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Thread ID</Box>
+              <Input
+                value={threadId}
+                onChange={(e) => setThreadId(e.target.value)}
+                w="140px"
+              />
+            </Box>
+            <Box>
+              <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Top K</Box>
+              <Input
+                type="number"
+                value={topK}
+                onChange={(e) => setTopK(Number(e.target.value))}
+                min={1}
+                max={50}
+                w="90px"
+              />
+            </Box>
+            <Box>
+              <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Max Hops</Box>
+              <Input
+                type="number"
+                value={maxHops}
+                onChange={(e) => setMaxHops(Number(e.target.value))}
+                min={1}
+                max={5}
+                w="90px"
+              />
+            </Box>
+            <Button
+              type="submit"
+              loading={loading}
+              disabled={!query.trim()}
+              colorPalette="blue"
+            >
+              Search
+            </Button>
+          </HStack>
+        </Stack>
+      </form>
+    </Box>
   );
 }

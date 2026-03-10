@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { postQuery, type RAGResponse } from "@/lib/api-client";
 import { QueryForm } from "@/components/QueryForm";
 import { QueryResults } from "@/components/QueryResults";
+import { Alert, HStack, Spinner, Stack, Text } from "@chakra-ui/react";
 
 export default function QueryPage() {
   const [result, setResult] = useState<RAGResponse | null>(null);
@@ -38,25 +39,29 @@ export default function QueryPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Search / Query</h1>
+    <Stack gap={4}>
+      <Text fontSize="3xl" fontWeight={700}>Search / Query</Text>
 
       <QueryForm onSubmit={handleSubmit} loading={loading} />
 
       {loading && (
-        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700">
-          <span className="shrink-0 animate-spin inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
-          <span>Ricerca semantica e arricchimento grafo in corso…</span>
-        </div>
+        <Alert.Root status="info">
+          <Alert.Description>
+            <HStack gap={2}>
+              <Spinner size="sm" />
+              <Text fontSize="sm">Ricerca semantica e arricchimento grafo in corso…</Text>
+            </HStack>
+          </Alert.Description>
+        </Alert.Root>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 text-sm">
-          {error}
-        </div>
+        <Alert.Root status="error">
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
       )}
 
       <QueryResults result={result} />
-    </div>
+    </Stack>
   );
 }

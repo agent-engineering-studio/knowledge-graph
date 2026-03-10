@@ -3,6 +3,20 @@
 import { useCallback, useRef, useState } from "react";
 import { uploadAndIngest, type IngestResult } from "@/lib/api-client";
 import { DocumentList } from "@/components/DocumentList";
+import { useDropzone } from "react-dropzone";
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  HStack,
+  IconButton,
+  SimpleGrid,
+  Spinner,
+  Stack,
+  Text,
+  Input,
+} from "@chakra-ui/react";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -18,23 +32,25 @@ export default function IngestPage() {
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setResult(null);
-    setError(null);
-    setSelectedFile(e.target.files?.[0] ?? null);
-  };
-
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles[0]) {
       setResult(null);
       setError(null);
-      setSelectedFile(file);
+      setSelectedFile(acceptedFiles[0]);
     }
   }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "application/pdf": [".pdf"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "text/plain": [".txt"],
+    },
+    maxFiles: 1,
+    disabled: loading,
+  });
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -48,7 +64,6 @@ export default function IngestPage() {
         setResult(res);
         setRefreshTrigger((n) => n + 1);
         setSelectedFile(null);
-        if (inputRef.current) inputRef.current.value = "";
       } catch (err) {
         setError(err instanceof Error ? err.message : "Ingestion failed");
       } finally {
@@ -59,100 +74,104 @@ export default function IngestPage() {
   );
 
   return (
-    <div className="space-y-8">
+    <Stack gap={6}>
       <div>
-        <h1 className="text-2xl font-bold">Document Ingestion</h1>
-        <p className="text-gray-600 mt-1 text-sm">
+        <Text fontSize="3xl" fontWeight={700}>Document Ingestion</Text>
+        <Text color="gray.500" fontSize="sm" mt={1}>
           Upload documents to the knowledge graph. The pipeline extracts text, generates embeddings,
           and builds entity/relation nodes in Neo4j. Supported formats: PDF, DOCX, TXT.
-        </p>
+        </Text>
       </div>
 
       {/* Upload form */}
-      <section className="bg-white rounded-lg border p-5">
-        <h2 className="font-semibold mb-4">Upload a Document</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-
-          {/* Drop zone */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
-            onClick={() => inputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              selectedFile
-                ? "border-blue-400 bg-blue-50"
-                : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"
-            }`}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".pdf,.docx,.txt"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            {selectedFile ? (
-              <div className="space-y-1">
-                <p className="font-medium text-blue-700">{selectedFile.name}</p>
-                <p className="text-xs text-gray-500">{formatBytes(selectedFile.size)}</p>
-                <p className="text-xs text-gray-400">Click to change file</p>
-              </div>
-            ) : (
-              <div className="space-y-1 text-gray-400">
-                <p className="text-2xl">📄</p>
-                <p className="text-sm font-medium">Drop a file here or click to browse</p>
-                <p className="text-xs">PDF, DOCX, TXT supported</p>
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-4 items-end flex-wrap">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Namespace / Thread ID</label>
-              <input
-                value={threadId}
-                onChange={(e) => setThreadId(e.target.value)}
-                className="border rounded px-2 py-1 text-sm w-40"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm select-none cursor-pointer">
-              <input
-                type="checkbox"
-                checked={skipExisting}
-                onChange={(e) => setSkipExisting(e.target.checked)}
-                className="rounded"
-              />
-              Skip already-ingested chunks
-            </label>
-            <button
-              type="submit"
-              disabled={loading || !selectedFile}
-              className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+      <Box borderWidth="1px" borderRadius="md" p={4}>
+        <Text fontWeight={600} mb={4}>Upload a Document</Text>
+        <form onSubmit={handleSubmit}>
+          <Stack gap={4}>
+            <Box
+              {...getRootProps()}
+              borderWidth={2}
+              borderStyle="dashed"
+              borderColor={isDragActive ? "blue.400" : "gray.200"}
+              borderRadius="md"
+              p={6}
+              textAlign="center"
+              cursor={loading ? "not-allowed" : "pointer"}
+              bg={isDragActive ? "blue.50" : "transparent"}
+              _hover={{ borderColor: loading ? "gray.200" : "blue.300" }}
             >
-              {loading ? "Ingesting…" : "Ingest"}
-            </button>
-          </div>
+              <input {...getInputProps()} />
+              <Stack align="center" gap={2}>
+                {selectedFile ? (
+                  <>
+                    <Text fontWeight={500} color="blue.700">{selectedFile.name}</Text>
+                    <Text fontSize="xs" color="gray.500">{formatBytes(selectedFile.size)}</Text>
+                    <Text fontSize="xs" color="gray.500">Click to change file</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text fontSize="2xl">📄</Text>
+                    <Text fontSize="sm" fontWeight={500}>Drop a file here or click to browse</Text>
+                    <Text fontSize="xs" color="gray.500">PDF, DOCX, TXT supported</Text>
+                  </>
+                )}
+              </Stack>
+            </Box>
+
+            <HStack align="flex-end" gap={3}>
+              <Box>
+                <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Namespace / Thread ID</Box>
+                <Input
+                  value={threadId}
+                  onChange={(e) => setThreadId(e.target.value)}
+                  w="160px"
+                />
+              </Box>
+              <Checkbox.Root
+                checked={skipExisting}
+                onCheckedChange={(e) => setSkipExisting(!!e.checked)}
+                alignSelf="center"
+                mt={2}
+              >
+                <Checkbox.HiddenInput />
+                <Checkbox.Control />
+                <Checkbox.Label fontSize="sm">Skip already-ingested chunks</Checkbox.Label>
+              </Checkbox.Root>
+              <Button
+                type="submit"
+                loading={loading}
+                disabled={!selectedFile}
+                alignSelf="flex-end"
+                colorPalette="blue"
+              >
+                Ingest
+              </Button>
+            </HStack>
+          </Stack>
         </form>
-      </section>
+      </Box>
 
-      {/* Progress */}
       {loading && (
-        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700 flex items-center gap-2">
-          <span className="animate-spin inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
-          Uploading and processing document… this may take a minute.
-        </div>
+        <Alert.Root status="info">
+          <Alert.Description>
+            <HStack gap={2}>
+              <Spinner size="sm" />
+              <Text fontSize="sm">Uploading and processing document… this may take a minute.</Text>
+            </HStack>
+          </Alert.Description>
+        </Alert.Root>
       )}
 
-      {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 text-sm">{error}</div>
+        <Alert.Root status="error">
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
       )}
 
-      {/* Result */}
       {result && (
-        <section className="bg-white rounded-lg border p-5">
-          <h2 className="font-semibold mb-4 text-green-700">Ingestion Complete</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Box borderWidth="1px" borderRadius="md" p={4}>
+          <Text fontWeight={600} color="green.700" mb={4}>Ingestion Complete</Text>
+          <SimpleGrid columns={{ base: 2, sm: 4 }} gap={3}>
             {[
               { label: "Chunks processed", value: result.chunks_processed },
               { label: "Chunks skipped", value: result.chunks_skipped },
@@ -163,36 +182,41 @@ export default function IngestPage() {
               { label: "Processing time", value: `${result.processing_time_ms.toFixed(0)} ms` },
               { label: "Document ID", value: result.document_id.slice(0, 8) + "…" },
             ].map(({ label, value }) => (
-              <div key={label} className="bg-gray-50 rounded p-3 text-center">
-                <p className="text-lg font-bold text-gray-800">{value}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-              </div>
+              <Box key={label} borderWidth="1px" borderRadius="md" p={3} textAlign="center">
+                <Text fontSize="lg" fontWeight={700}>{value}</Text>
+                <Text fontSize="xs" color="gray.500" mt={1}>{label}</Text>
+              </Box>
             ))}
-          </div>
+          </SimpleGrid>
           {result.errors.length > 0 && (
-            <div className="mt-4 text-sm text-red-600 space-y-1">
-              <p className="font-medium">Warnings / Errors:</p>
-              {result.errors.map((e, i) => (
-                <p key={i} className="ml-2">• {e}</p>
-              ))}
-            </div>
+            <Alert.Root status="warning" mt={4}>
+              <Alert.Description>
+                <Stack gap={1}>
+                  {result.errors.map((e, i) => (
+                    <Text key={i} fontSize="sm">• {e}</Text>
+                  ))}
+                </Stack>
+              </Alert.Description>
+            </Alert.Root>
           )}
-        </section>
+        </Box>
       )}
 
       {/* Document list */}
-      <section className="bg-white rounded-lg border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">Documents in namespace "{threadId}"</h2>
-          <button
+      <Box borderWidth="1px" borderRadius="md" p={4}>
+        <HStack justify="space-between" mb={4}>
+          <Text fontWeight={600}>Documents in namespace &ldquo;{threadId}&rdquo;</Text>
+          <IconButton
+            aria-label="Refresh"
+            variant="ghost"
+            size="sm"
             onClick={() => setRefreshTrigger((n) => n + 1)}
-            className="text-xs text-gray-500 hover:text-gray-700"
           >
-            Refresh
-          </button>
-        </div>
+            ↻
+          </IconButton>
+        </HStack>
         <DocumentList namespace={threadId} refreshTrigger={refreshTrigger} />
-      </section>
-    </div>
+      </Box>
+    </Stack>
   );
 }

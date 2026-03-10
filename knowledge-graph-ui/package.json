@@ -9,21 +9,29 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@chakra-ui/react": "^3.34.0",
+    "@tiptap/extension-link": "^3.20.1",
+    "@tiptap/pm": "^3.20.1",
+    "@tiptap/react": "^3.20.1",
+    "@tiptap/starter-kit": "^3.20.1",
+    "dayjs": "^1.11.19",
+    "embla-carousel": "^8.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "lucide-react": "^0.474.0",
     "next": "^15.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-dropzone": "^15.0.0",
     "react-force-graph-2d": "^1.26.0",
-    "lucide-react": "^0.474.0"
+    "recharts": "^3.8.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0",
-    "tailwindcss": "^4.0.0",
-    "@tailwindcss/postcss": "^4.0.0",
-    "postcss": "^8.5.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^15.2.0"
+    "eslint-config-next": "^15.2.0",
+    "postcss": "^8.5.0",
+    "typescript": "^5.7.0"
   }
 }

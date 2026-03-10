@@ -106,6 +106,11 @@ export interface AgentRunRecord {
   status: "success" | "failed";
 }
 
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // ── API functions ──────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -199,6 +204,20 @@ export function postAgentRun(body: AgentRunRequest, signal?: AbortSignal) {
 
 export function getAgentRuns(limit = 10, signal?: AbortSignal) {
   return agentsFetch<AgentRunRecord[]>(`/agents/runs?limit=${limit}`, { signal });
+}
+
+export function getConversationHistory(threadId: string, signal?: AbortSignal) {
+  return agentsFetch<ConversationTurn[]>(
+    `/agents/history/${encodeURIComponent(threadId)}`,
+    { signal },
+  );
+}
+
+export function clearConversationHistory(threadId: string, signal?: AbortSignal) {
+  return agentsFetch<{ cleared: string }>(
+    `/agents/history/${encodeURIComponent(threadId)}`,
+    { method: "DELETE", signal },
+  );
 }
 
 export async function uploadAndRunAgent(

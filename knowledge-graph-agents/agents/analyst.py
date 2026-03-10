@@ -1,155 +1,130 @@
-"""Analyst Agent — retrieves context via KG API and calls Ollama directly for grounded answers."""
+"""Analyst Agent — retrieves KG context and answers questions grounded in documents.
+
+Uses the Microsoft Agent Framework ``client.as_agent()`` + ``AgentSession`` pattern.
+
+Context retrieval is done explicitly in Python (not via LLM tool-calling) because
+local models like qwen2.5:7b may not call tools reliably via the OpenAI-compatible
+API.  The retrieved context is injected directly into the user message so the LLM
+only needs to generate a grounded answer — no tool invocation required.
+
+The ``RedisHistoryProvider`` injects past conversation turns into the agent's
+system instructions before each run.
+"""
 
 from __future__ import annotations
 
-import os
+from agent_framework import AgentSession
 
-import httpx
-
+from agents.client import get_client
+from memory.redis_history import RedisHistoryProvider
 from tools.kg_tools import kg_retrieve_context_tool
-from orchestration.state import AgentState
 
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_LLM_MODEL: str = os.getenv("OLLAMA_LLM_MODEL", "qwen2.5:7b")
-
-_NO_DOCS_REPLY = {
-    "it": "I documenti forniti non contengono informazioni su questo argomento.",
-    "en": "The provided documents do not contain information about this topic.",
-}
-
+_NO_DOCS_IT = "I documenti forniti non contengono informazioni su questo argomento."
+_NO_DOCS_EN = "The provided documents do not contain information about this topic."
 _ITALIAN_WORDS = ("cosa", "che", "come", "quale", "quanto", "chi", "dove", "quando", "dammi", "dimmi")
 
 
 def _no_docs_message(query: str) -> str:
-    q = query.lower()
-    if any(w in q for w in _ITALIAN_WORDS):
-        return _NO_DOCS_REPLY["it"]
-    return _NO_DOCS_REPLY["en"]
+    return _NO_DOCS_IT if any(w in query.lower() for w in _ITALIAN_WORDS) else _NO_DOCS_EN
 
 
-_SYSTEM = (
-    "You are a precise data extractor. "
-    "Read the reference data provided by the user and answer questions using ONLY the values "
-    "found there. Never use general knowledge or external information."
-)
+_ANALYST_INSTRUCTIONS = """\
+You are a precise data extractor for a Knowledge Graph system.
 
-_TASK_TEMPLATE = """\
-{reference_data}
+## Your task
+The user message contains reference data retrieved from the Knowledge Graph,
+followed by a question.  Answer the question using ONLY the values found in
+the reference data.  Never rely on your general training knowledge.
 
----
-TASK: Answer the question below using ONLY what is written in the <documents> above.
-
-Rules:
-1. Copy every relevant value verbatim from the documents (format: "[filename]: value").
-2. After listing them, give a direct answer.
-3. If no relevant value is in <documents>, reply exactly:
+## Rules
+1. Copy every relevant value verbatim from the reference data (format: "[source]: value").
+2. After listing them, give a concise direct answer.
+3. If the question is a follow-up, use the conversation history in your system
+   instructions to understand the context.
+4. If no relevant value is found in the reference data, reply exactly:
    "I documenti forniti non contengono informazioni su questo argomento."
 
-Question: {question}
+## Constraints
+- Be deterministic and precise.
+- Do not speculate or add information not present in the reference data.
+"""
 
-Values found in <documents>:"""
+_history_provider = RedisHistoryProvider()
+
+_CONTEXT_TEMPLATE = """\
+<reference_data>
+{context_message}
+</reference_data>
+
+---
+QUESTION: {question}
+
+Values found in <reference_data>:"""
 
 
-async def _generate(context_message: str, user_query: str) -> str:
-    """Call Ollama with the raw reference data and return the grounded answer.
+def create_analyst_agent(thread_id: str):
+    """Create an analyst agent for the given namespace/thread.
 
-    context_message contains ONLY raw data (documents + graph nodes/edges).
-    All instructions live here in the agent, not in the API layer.
-    temperature=0 prevents the model from drifting into training-data answers.
+    No tools are registered — context is pre-fetched in Python and injected
+    into the prompt, making the agent reliable even with local LLMs that do
+    not support tool-calling.
     """
-    user_message = _TASK_TEMPLATE.format(
-        reference_data=context_message,
-        question=user_query,
+    client = get_client()
+    return client.as_agent(
+        name="analyst",
+        instructions=_ANALYST_INSTRUCTIONS,
+        context_providers=[_history_provider],
     )
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{OLLAMA_BASE_URL}/api/chat",
-            json={
-                "model": OLLAMA_LLM_MODEL,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": user_message},
-                ],
-                "stream": False,
-                "options": {"temperature": 0, "num_predict": 1024},
-            },
-        )
-        if response.status_code == 404:
-            body = response.json() if response.content else {}
-            err = body.get("error", "")
-            if "not found" in err.lower():
-                raise RuntimeError(
-                    f"Ollama model '{OLLAMA_LLM_MODEL}' not found. "
-                    f"Run: ollama pull {OLLAMA_LLM_MODEL}"
-                )
-        response.raise_for_status()
-        return response.json()["message"]["content"]
 
 
-async def analyst_node(state: AgentState) -> AgentState:
-    """LangGraph node: retrieve knowledge-graph context, then call Ollama directly.
+async def run_analyst(request: str, thread_id: str) -> str:
+    """Run the analyst agent and return a grounded answer.
 
     Flow:
-      1. Call kg_retrieve_context_tool (vector + keyword + graph, no LLM)
-      2. If no documents found → return localised "no info" message
-      3. Call Ollama with the assembled context_message as system prompt
-      4. Append source references to the answer for verification
+      1. Retrieve KG context explicitly in Python (vector + graph, no LLM).
+      2. If no documents → return localised "no info" message immediately.
+      3. Build an augmented prompt that embeds the context alongside the question.
+      4. Run the MAF agent — the LLM generates an answer from the prompt context.
+      5. Append source references for verification.
     """
-    context: dict = dict(state.get("context", {}))
-    thread_id: str = state.get("thread_id", "default")
-    query: str = context.get("query", state.get("user_request", ""))
-    top_k: int = context.get("top_k", 10)
-
+    # Step 1: explicit retrieval (no LLM tool-calling)
     try:
         retrieval = await kg_retrieve_context_tool(
-            query=query,
-            thread_id=thread_id,
-            top_k=top_k,
-            max_hops=2,
+            query=request, thread_id=thread_id, top_k=10, max_hops=2
         )
     except Exception as exc:
-        return {
-            **state,
-            "context": context,
-            "error": f"Analyst Agent: retrieval failed — {exc}",
-            "final_output": f"Errore durante il recupero del contesto: {exc}",
-        }
+        return f"Errore durante il recupero del contesto: {exc}"
 
-    context["analyst_retrieval"] = retrieval
-    sources = retrieval.get("sources", [])
-
-    # Short-circuit: no documents → skip LLM
+    # Step 2: short-circuit if no documents
     if not retrieval.get("has_documents", False):
-        return {
-            **state,
-            "context": context,
-            "final_output": _no_docs_message(query),
-            "error": None,
-        }
+        return _no_docs_message(request)
 
-    # Call Ollama with the retrieval context assembled by the API
+    context_message: str = retrieval.get("context_message", "")
+    sources: list = retrieval.get("sources", [])
+
+    # Step 3: build prompt with embedded context
+    augmented_prompt = _CONTEXT_TEMPLATE.format(
+        context_message=context_message,
+        question=request,
+    )
+
+    # Step 4: MAF agent generates the grounded answer
+    agent = create_analyst_agent(thread_id)
+    session: AgentSession = agent.create_session()
+    session.state["thread_id"] = thread_id
+
     try:
-        answer = await _generate(retrieval["context_message"], query)
+        answer = str(await agent.run(augmented_prompt, session=session))
     except Exception as exc:
-        return {
-            **state,
-            "context": context,
-            "error": f"Analyst Agent: LLM generation failed — {exc}",
-            "final_output": f"Errore durante la generazione della risposta: {exc}",
-        }
+        return f"Errore durante la generazione della risposta: {exc}"
 
-    # Append source references so the user can verify retrieval
+    # Step 5: append source references
     if sources:
-        source_lines = []
+        lines = []
         for s in sources[:5]:
             name = s.get("document_name") or s.get("doc_id", "")
             preview = s.get("text_preview", "")[:120].replace("\n", " ")
-            source_lines.append(f"- **{name}**: _{preview}…_")
-        answer = answer + "\n\n**Fonti recuperate:**\n" + "\n".join(source_lines)
+            lines.append(f"- **{name}**: _{preview}…_")
+        answer = answer + "\n\n**Fonti recuperate:**\n" + "\n".join(lines)
 
-    return {
-        **state,
-        "context": context,
-        "final_output": answer,
-        "error": None,
-    }
+    return answer

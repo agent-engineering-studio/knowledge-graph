@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postQuery, type RAGResponse } from "@/lib/api-client";
+import { Alert, Box, Button, Center, HStack, Input, Stack, Text } from "@chakra-ui/react";
 
 interface GraphNode {
   id: string;
@@ -30,7 +31,6 @@ function buildGraphData(result: RAGResponse): GraphData {
   }
 
   for (const edge of result.edges_used) {
-    // edges come as "source --RELATION--> target" format typically
     const match = edge.match(/^(.+?)\s*--(\w+)-->\s*(.+)$/);
     if (match) {
       const [, src, rel, tgt] = match;
@@ -82,10 +82,8 @@ export function GraphView() {
       try {
         const ForceGraph = (await import("react-force-graph-2d")).default;
         if (cancelled) return;
-        // react-force-graph-2d expects a container element, we render it imperatively
         const container = canvasRef.current!.parentElement!;
         if (graphRef.current) {
-          // cleanup previous
           container.innerHTML = '<canvas></canvas>';
         }
 
@@ -121,48 +119,52 @@ export function GraphView() {
   }, [graphData]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-3 items-end">
-        <div className="flex-1">
-          <label className="block text-sm font-medium mb-1">Query to explore</label>
-          <input
+    <Stack gap={4}>
+      <HStack align="flex-end" gap={3}>
+        <Box flex={1}>
+          <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Query to explore</Box>
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             placeholder="Enter a topic to visualize its knowledge graph..."
           />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Thread ID</label>
-          <input
+        </Box>
+        <Box>
+          <Box as="label" fontSize="sm" fontWeight={500} mb={1} display="block">Thread ID</Box>
+          <Input
             value={threadId}
             onChange={(e) => setThreadId(e.target.value)}
-            className="border rounded px-2 py-1 text-sm w-32"
+            w="140px"
           />
-        </div>
-        <button
+        </Box>
+        <Button
           onClick={handleSearch}
-          disabled={loading || !query.trim()}
-          className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          loading={loading}
+          disabled={!query.trim()}
+          colorPalette="blue"
         >
-          {loading ? "Loading..." : "Explore"}
-        </button>
-      </div>
+          Explore
+        </Button>
+      </HStack>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 text-sm">{error}</div>}
+      {error && (
+        <Alert.Root status="error">
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
+      )}
 
-      <div className="bg-white rounded-lg border overflow-hidden" style={{ minHeight: 500 }}>
+      <Box borderWidth="1px" borderRadius="md" minH="500px" overflow="hidden">
         {graphData ? (
           <div ref={(el) => { if (el && !el.querySelector("canvas")) el.innerHTML = '<canvas></canvas>'; }}>
             <canvas ref={canvasRef} />
           </div>
         ) : (
-          <div className="flex items-center justify-center h-[500px] text-gray-400 text-sm">
-            Enter a query above to explore the knowledge graph
-          </div>
+          <Center h="500px">
+            <Text color="gray.500" fontSize="sm">Enter a query above to explore the knowledge graph</Text>
+          </Center>
         )}
-      </div>
-    </div>
+      </Box>
+    </Stack>
   );
 }

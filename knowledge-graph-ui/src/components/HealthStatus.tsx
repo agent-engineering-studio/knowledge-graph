@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getHealth, type HealthResponse } from "@/lib/api-client";
+import { Badge, Box, HStack, Spinner, Text } from "@chakra-ui/react";
 
 export function HealthStatus() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -19,8 +20,15 @@ export function HealthStatus() {
     return () => ctrl.abort();
   }, []);
 
-  if (loading) return <div className="text-sm text-gray-500">Checking services...</div>;
-  if (error) return <div className="text-sm text-red-600">API unreachable: {error}</div>;
+  if (loading) {
+    return (
+      <HStack gap={2}>
+        <Spinner size="sm" />
+        <Text fontSize="sm" color="gray.500">Checking services...</Text>
+      </HStack>
+    );
+  }
+  if (error) return <Text fontSize="sm" color="red.500">API unreachable: {error}</Text>;
   if (!health) return null;
 
   const services = [
@@ -30,20 +38,21 @@ export function HealthStatus() {
   ];
 
   return (
-    <div className="flex gap-4 items-center">
-      <span
-        className={`text-sm font-medium ${
-          health.status === "healthy" ? "text-green-600" : "text-yellow-600"
-        }`}
-      >
+    <HStack gap={4} flexWrap="wrap">
+      <Badge colorPalette={health.status === "healthy" ? "green" : "yellow"} variant="subtle" size="md">
         {health.status === "healthy" ? "All services healthy" : "Degraded"}
-      </span>
+      </Badge>
       {services.map((s) => (
-        <span key={s.name} className="flex items-center gap-1 text-xs text-gray-600">
-          <span className={`inline-block w-2 h-2 rounded-full ${s.ok ? "bg-green-500" : "bg-red-500"}`} />
-          {s.name}
-        </span>
+        <HStack key={s.name} gap={1}>
+          <Box
+            w={2}
+            h={2}
+            borderRadius="full"
+            bg={s.ok ? "green.500" : "red.500"}
+          />
+          <Text fontSize="xs" color="gray.500">{s.name}</Text>
+        </HStack>
       ))}
-    </div>
+    </HStack>
   );
 }

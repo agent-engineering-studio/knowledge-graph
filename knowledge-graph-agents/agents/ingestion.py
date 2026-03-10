@@ -1,86 +1,55 @@
-"""Ingestion Agent — manages the full document lifecycle in the KG."""
+"""Ingestion Agent — manages the full document lifecycle in the Knowledge Graph.
+
+Uses the Microsoft Agent Framework ``client.as_agent()`` pattern.
+The agent's LLM orchestrates: health-check → list existing docs → ingest.
+"""
 
 from __future__ import annotations
 
-from tools.kg_tools import kg_health_tool, kg_ingest_tool, kg_list_documents_tool
-from orchestration.state import AgentState
+from agent_framework import AgentSession
+
+from agents.client import get_client
+from tools.kg_tools import make_ingest_tools
+
+_INGESTION_INSTRUCTIONS = """\
+You are a document ingestion agent for a Knowledge Graph system.
+
+## Your task
+Ingest a document file into the Knowledge Graph pipeline following these steps:
+
+1. Call `check_kg_health` to verify all services (Neo4j, Redis, Ollama) are running.
+   If any service is unavailable, stop and report the issue.
+
+2. Call `list_kg_documents` to check for existing documents (dedup pre-check).
+
+3. Call `ingest_document` with the file path provided in the user request.
+   Use `skip_existing=true` to avoid reprocessing duplicate chunks.
+
+4. Report the ingestion result with:
+   - Chunks processed / skipped
+   - Entities and relations extracted
+   - Nodes and edges created in Neo4j
+   - Processing time
+
+## Error handling
+If ingestion fails, explain the error clearly and suggest corrective action.
+"""
 
 
-async def ingestion_node(state: AgentState) -> AgentState:
-    """LangGraph node: ingest a document and update the shared state.
-
-    Reads ``context["file_path"]`` (required) and uses the ``thread_id`` from
-    the shared state.  On success writes the ``IngestResult`` dict into
-    ``context["ingestion_result"]``.
-    """
-    context: dict = dict(state.get("context", {}))
-    thread_id: str = state.get("thread_id", "default")
-    file_path: str = context.get("file_path", "")
-
-    if not file_path:
-        return {
-            **state,
-            "error": "Ingestion Agent: context['file_path'] is required",
-            "final_output": "Errore: nessun file specificato per l'ingestion.",
-        }
-
-    # Pre-check: verify the API is healthy
-    try:
-        health = await kg_health_tool()
-        if health.get("status") not in ("ok", "healthy"):
-            return {
-                **state,
-                "error": "Ingestion Agent: KG API health check failed",
-                "final_output": "Errore: il servizio KG non è disponibile.",
-            }
-    except Exception as exc:
-        return {
-            **state,
-            "error": f"Ingestion Agent: health check error — {exc}",
-            "final_output": "Errore: impossibile raggiungere il servizio KG.",
-        }
-
-    # Optional dedup pre-check
-    try:
-        existing_docs = await kg_list_documents_tool(thread_id)
-        existing_names = [d.get("name", "") for d in existing_docs.get("documents", [])]
-        context["existing_doc_count"] = len(existing_names)
-    except Exception:
-        context["existing_doc_count"] = 0
-
-    # Main ingestion
-    try:
-        result = await kg_ingest_tool(
-            file_path=file_path,
-            thread_id=thread_id,
-            skip_existing=context.get("skip_existing", True),
-        )
-    except Exception as exc:
-        return {
-            **state,
-            "context": context,
-            "error": f"Ingestion Agent: ingest failed — {exc}",
-            "final_output": f"Errore durante l'ingestion di '{file_path}': {exc}",
-        }
-
-    context["ingestion_result"] = result
-
-    summary = (
-        f"Documento '{file_path}' ingestito con successo.\n"
-        f"- Chunks processati: {result.get('chunks_processed', 0)}\n"
-        f"- Chunks saltati (dedup): {result.get('chunks_skipped', 0)}\n"
-        f"- Entità estratte: {result.get('entities_extracted', 0)}\n"
-        f"- Relazioni estratte: {result.get('relations_extracted', 0)}\n"
-        f"- Nodi creati: {result.get('nodes_created', 0)}\n"
-        f"- Archi creati: {result.get('edges_created', 0)}\n"
-        f"- Tempo: {result.get('processing_time_ms', 0):.0f} ms"
+def create_ingestion_agent(thread_id: str):
+    """Create an ingestion agent for the given namespace/thread."""
+    client = get_client()
+    tools = make_ingest_tools(thread_id)
+    return client.as_agent(
+        name="ingestion",
+        instructions=_INGESTION_INSTRUCTIONS,
+        tools=tools,
     )
-    if result.get("errors"):
-        summary += f"\n- Errori: {result['errors']}"
 
-    return {
-        **state,
-        "context": context,
-        "final_output": summary,
-        "error": None,
-    }
+
+async def run_ingestion(request: str, thread_id: str) -> str:
+    """Run the ingestion agent and return the result summary."""
+    agent = create_ingestion_agent(thread_id)
+    session: AgentSession = agent.create_session()
+    session.state["thread_id"] = thread_id
+    return str(await agent.run(request, session=session))

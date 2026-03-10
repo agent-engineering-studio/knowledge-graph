@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Box, HStack, Text } from "@chakra-ui/react";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -15,25 +16,31 @@ export function Navbar() {
   const pathname = usePathname();
 
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 py-3">
-      <div className="max-w-7xl mx-auto flex items-center gap-8">
-        <span className="font-bold text-lg">KG Lab</span>
-        <div className="flex gap-4">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={`text-sm px-3 py-1 rounded ${
-                pathname === l.href
-                  ? "bg-blue-100 text-blue-700 font-medium"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              {l.label}
-            </Link>
-          ))}
-        </div>
-      </div>
-    </nav>
+    <Box as="header" borderBottomWidth="1px" borderColor="gray.200" bg="white">
+      <Box maxW="1200px" mx="auto" px={4} h="56px">
+        <HStack h="100%" gap={8}>
+          <Text fontWeight={700} fontSize="lg" color="blue.700">KG Lab</Text>
+          <HStack gap={1}>
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                style={{
+                  textDecoration: "none",
+                  padding: "4px 10px",
+                  borderRadius: "4px",
+                  fontWeight: pathname === l.href ? 600 : 400,
+                  backgroundColor: pathname === l.href ? "#ebf8ff" : "transparent",
+                  color: pathname === l.href ? "#1a5276" : "#4a5568",
+                  fontSize: "14px",
+                }}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </HStack>
+        </HStack>
+      </Box>
+    </Box>
   );
 }

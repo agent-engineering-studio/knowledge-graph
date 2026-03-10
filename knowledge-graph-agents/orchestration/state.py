@@ -1,4 +1,9 @@
-"""Shared AgentState schema for all agents in the multi-agent system."""
+"""Intent enum and AgentStep — shared types for the orchestration layer.
+
+``AgentState`` (LangGraph TypedDict) has been removed as part of the migration
+to the Microsoft Agent Framework.  Intent classification and dispatch now live
+in ``agents/orchestrator.py``.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,6 @@ from enum import Enum
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
 
 
 class Intent(str, Enum):
@@ -21,7 +25,7 @@ class Intent(str, Enum):
 
 
 class AgentStep(BaseModel):
-    """A single step in the agent execution plan."""
+    """A single step in the agent execution plan (kept for API backward-compat)."""
 
     agent: str
     action: str
@@ -29,17 +33,3 @@ class AgentStep(BaseModel):
     status: Literal["pending", "running", "done", "failed"] = "pending"
     result: Optional[Any] = None
     error: Optional[str] = None
-
-
-class AgentState(TypedDict):
-    """Shared state passed through the LangGraph workflow."""
-
-    user_request: str
-    intent: Optional[str]           # Intent enum value
-    plan: list[dict]                 # serialised AgentStep list
-    current_step: int
-    context: dict                    # intermediate data shared between agents
-    final_output: Optional[str]
-    error: Optional[str]
-    thread_id: str                   # KG namespace
-    run_id: str                      # UUID of the current run
