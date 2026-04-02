@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Box, HStack, Stack, Text } from "@chakra-ui/react";
+import { Box, HStack, Stack, Text, Badge } from "@chakra-ui/react";
 import Image from "next/image";
 
 /**
@@ -14,7 +14,7 @@ const AMAZON_BOOK_URL = "#"; // TODO: inserire URL Amazon reale
 
 const BOOK_HIGHLIGHTS = [
   "23 capitoli + 4 appendici",
-  "189 pagine a colori",
+  "190 pagine a colori",
   "Python 3.11+ & C# .NET 9",
   "Neo4j · Redis · Ollama · MCP",
   "Agent Framework multi-agente",
@@ -38,16 +38,6 @@ export function BookBanner() {
           {/* Header */}
           <HStack justify="space-between" align="flex-start" flexWrap="wrap" gap={3}>
             <Stack gap={1}>
-              <HStack gap={2}>
-                <Badge
-                  colorPalette="orange"
-                  variant="solid"
-                  size="sm"
-                  style={{ fontWeight: 700, letterSpacing: "0.05em" }}
-                >
-                  NUOVO — 2ª Edizione
-                </Badge>
-              </HStack>
               <Text fontSize="xl" fontWeight={700} lineHeight={1.2}>
                 Knowledge Graph: dalla Teoria alla Pratica
               </Text>
