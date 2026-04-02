@@ -1,4 +1,4 @@
-# Knowledge Graph Lab
+# Knowledge Graph
 
 ![banner_wide_en](https://github.com/user-attachments/assets/fbe6ad06-2ffd-4cb7-a958-8defe686cb10)
 
