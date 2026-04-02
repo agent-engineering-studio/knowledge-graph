@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { HealthStatus } from "@/components/HealthStatus";
+import { BookBanner } from "@/components/BookBanner";
 import { Badge, Box, Code, HStack, SimpleGrid, Stack, Text } from "@chakra-ui/react";
 
 const MCP_TOOLS = [
@@ -33,6 +34,9 @@ export default function DashboardPage() {
           RAG pipeline with Neo4j graph DB, Redis vector store, and Ollama LLM inference.
         </Text>
       </div>
+
+      {/* Book promo banner */}
+      <BookBanner />
 
       <Box borderWidth="1px" borderRadius="md" p={4}>
         <Text fontWeight={600} mb={3}>Service Health</Text>
