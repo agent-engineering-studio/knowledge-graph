@@ -1,9 +1,29 @@
 # Knowledge Graph
 
-![banner_wide_en](https://github.com/user-attachments/assets/fbe6ad06-2ffd-4cb7-a958-8defe686cb10)
+<table border="0">
+  <tr>
+    <td width="240" align="center" valign="top">
+      <a href="https://www.amazon.it/dp/B0GWRWH81M">
+        <img src="./assets/book-cover.jpg" alt="AI che Ragiona — copertina del libro" width="220" />
+      </a>
+    </td>
+    <td valign="middle">
+      <h2>AI che Ragiona</h2>
+      <p><strong>Costruire Sistemi Intelligenti con Grafi, RAG e Agenti in Produzione con Python, Neo4j e MAF</strong></p>
+      <p><em>Giuseppe Zileni — Hevolus Innovation, 2026</em></p>
+      <p>
+        <code>Knowledge Graph</code> · <code>Graph-RAG</code> · <code>MCP</code> · <code>Agenti AI</code>
+      </p>
+      <p>
+        <a href="https://www.amazon.it/dp/B0GWRWH81M">
+          <img src="https://img.shields.io/badge/Amazon-Acquista%20il%20libro-FF9900?style=for-the-badge&logo=amazon&logoColor=white" alt="Acquista su Amazon" />
+        </a>
+      </p>
+    </td>
+  </tr>
+</table>
 
-Complete **Knowledge Graph** system with document ingestion pipeline, vector store, graph database, hybrid RAG, web interface and a **multi-agent** orchestration layer built on LangGraph.
-Companion project for the book _"Knowledge Graph: dalla Teoria alla Pratica v2"_ (Giuseppe Zileni - Hevolus Innovation, 2026).
+Companion repository del libro **_"AI che Ragiona"_**: implementazione production-ready di un sistema **Knowledge Graph** completo con pipeline di ingestion documentale, vector store, graph database, **hybrid RAG** (vector + graph), interfaccia web, server **MCP** e layer di orchestrazione **multi-agent**.
 
 ---
 
