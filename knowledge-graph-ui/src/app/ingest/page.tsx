@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { uploadAndIngest, type IngestResult } from "@/lib/api-client";
 import { DocumentList } from "@/components/DocumentList";
 import { useDropzone } from "react-dropzone";
