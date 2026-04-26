@@ -12,12 +12,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_framework import BaseContextProvider
+try:
+    from agent_framework import BaseContextProvider as _ContextProviderBase
+except ImportError:
+    # agent_framework >= 1.2.0 moved / removed BaseContextProvider.
+    # Provide a compatible fallback so duck-typed context_providers= still work.
+    class _ContextProviderBase:  # type: ignore[no-redef]
+        def __init__(self, source_id: str) -> None:
+            self.source_id = source_id
 
 from memory.redis_store import redis_get_history
 
 
-class RedisHistoryProvider(BaseContextProvider):
+class RedisHistoryProvider(_ContextProviderBase):
     """Injects conversation history from Redis into each agent run.
 
     Usage::
@@ -41,7 +48,7 @@ class RedisHistoryProvider(BaseContextProvider):
     DEFAULT_SOURCE_ID = "redis_history"
 
     def __init__(self) -> None:
-        super().__init__(self.DEFAULT_SOURCE_ID)
+        super().__init__(self.DEFAULT_SOURCE_ID)  # sets self.source_id
 
     async def before_run(
         self,
