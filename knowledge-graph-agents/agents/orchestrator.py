@@ -11,6 +11,15 @@ import re
 
 from orchestration.state import Intent
 
+# Imported at module level so they are patchable in tests and available without
+# lazy loading on every dispatch() call.
+from agents.analyst import run_analyst
+from agents.ingestion import run_ingestion
+from agents.kgc import run_kgc
+from agents.monitor import run_monitor
+from agents.synthesis import run_synthesis
+from agents.validator import run_validator
+
 # ── Intent classification (regex-based) ──────────────────────────────────────
 
 _INTENT_PATTERNS: dict[Intent, list[str]] = {
@@ -27,7 +36,9 @@ _INTENT_PATTERNS: dict[Intent, list[str]] = {
         r"\b(report|genera|riassumi|sintesi|summary|generate|create|crea)\b",
     ],
     Intent.VALIDATE: [
-        r"\b(valida|verifica qualit|check|qualit|quality|valid)\b",
+        # "verifica qualità" — use \bverifica\b to avoid Unicode \b issues with
+        # accented chars (à is a word char in Unicode mode, breaking qualit\b)
+        r"\b(valida|verifica|check|qualit|quality|valid)\b",
     ],
     Intent.KGC: [
         r"\b(relazioni mancanti|completa|gap|missing relations|completion|completamento)\b",
@@ -93,14 +104,6 @@ async def dispatch(
     """
     ctx = context or {}
     intent = classify_intent(user_request)
-
-    # Lazy imports to avoid circular dependencies
-    from agents.analyst import run_analyst
-    from agents.ingestion import run_ingestion
-    from agents.kgc import run_kgc
-    from agents.monitor import run_monitor
-    from agents.synthesis import run_synthesis
-    from agents.validator import run_validator
 
     # ── Single-agent flows ────────────────────────────────────────────────────
 
