@@ -56,10 +56,11 @@ async def main() -> None:
     thread_id = "seed"
 
     for doc in SAMPLE_DOCS:
-        tmp = Path(tempfile.mktemp(suffix=".txt"))
-        tmp.write_text(doc["content"], encoding="utf-8")
-        logger.info("seeding", name=doc["name"])
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8", delete=False) as fh:
+            fh.write(doc["content"])
+            tmp = Path(fh.name)
 
+        logger.info("seeding", name=doc["name"])
         try:
             result = await pipeline.ingest(
                 file_path=str(tmp),

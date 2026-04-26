@@ -1,7 +1,5 @@
 """Tests for pipeline.chunker.TextChunker."""
 
-import pytest
-
 from pipeline.chunker import TextChunker
 
 

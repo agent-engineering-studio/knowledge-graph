@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 
 from query.rag_pipeline import GraphRAGPipeline, QueryOptions
-from utils.logger import logger
 
 DEMO_QUERIES = [
     "What is Redis and how is it used?",

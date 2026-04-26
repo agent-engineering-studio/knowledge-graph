@@ -5,7 +5,7 @@ from __future__ import annotations
 from neo4j import AsyncGraphDatabase
 
 from config.settings import settings
-from models.graph_node import GraphNode, VALID_NODE_TYPES
+from models.graph_node import GraphNode
 from models.relation import Relation, VALID_RELATION_TYPES
 from utils.logger import logger
 

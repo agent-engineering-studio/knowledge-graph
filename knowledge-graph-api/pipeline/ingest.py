@@ -7,7 +7,6 @@ import time
 
 from pydantic import BaseModel
 
-from config.settings import settings
 from models.base import VectorDocument
 from models.graph_node import GraphNode
 from models.relation import Relation
