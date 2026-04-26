@@ -1,0 +1,227 @@
+# ── Pre-built images from GitHub Container Registry ───────────────────────────
+#
+# Use this file to run the full Knowledge Graph stack locally without cloning
+# the source code or building any image.
+#
+# Images are published automatically on every CI-green merge to main:
+#   ghcr.io/agent-engineering-studio/kg-api:latest
+#   ghcr.io/agent-engineering-studio/kg-ui:latest
+#   ghcr.io/agent-engineering-studio/kg-mcp:latest
+#   ghcr.io/agent-engineering-studio/kg-agents:latest
+#
+# Quick start:
+#   1. Copy .env.example → .env  and set your passwords / Ollama URL
+#   2. Pull and start (CPU, no GPU):
+#        docker compose -f docker-compose.ghcr.yml --profile cpu up -d
+#      Or if Ollama is already running on the host:
+#        docker compose -f docker-compose.ghcr.yml up -d
+#   3. docker compose -f docker-compose.ghcr.yml exec ollama-cpu \
+#        ollama pull llama3 && ollama pull nomic-embed-text
+#      (skip if OLLAMA_BASE_URL points to a host-side Ollama)
+#
+# Profiles:
+#   (none)  → infra + app services; Ollama expected on the host at :11434
+#   cpu     → same + Ollama CPU container
+#   gpu     → same + Ollama GPU container (requires NVIDIA Container Toolkit)
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Neo4j (Graph DB) ──────────────────────────────────────────────────────────
+  neo4j:
+    container_name: kg-neo4j
+    image: neo4j:5.18
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-password}"
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test:
+        ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-password}", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis Stack (Vector Store + RedisInsight) ─────────────────────────────────
+  redis:
+    container_name: kg-redis
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Ollama CPU-only ───────────────────────────────────────────────────────────
+  # Use profile "cpu" on machines without an NVIDIA GPU.
+  # Skip both ollama profiles if Ollama is already running on the host and set
+  # OLLAMA_BASE_URL=http://host.docker.internal:11434 in your .env.
+  ollama-cpu:
+    container_name: kg-ollama-cpu
+    profiles: [cpu]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ── Ollama GPU (NVIDIA) ───────────────────────────────────────────────────────
+  # Use profile "gpu" on machines with an NVIDIA GPU.
+  ollama-gpu:
+    container_name: kg-ollama-gpu
+    profiles: [gpu]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ── API — pre-built image from GHCR ──────────────────────────────────────────
+  api:
+    container_name: kg-api
+    image: ghcr.io/agent-engineering-studio/kg-api:latest
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: "${NEO4J_USER:-neo4j}"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-password}"
+      REDIS_URL: "redis://redis:6379"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      OLLAMA_LLM_MODEL: "${OLLAMA_LLM_MODEL:-llama3}"
+      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ── UI — pre-built image from GHCR ───────────────────────────────────────────
+  ui:
+    container_name: kg-ui
+    image: ghcr.io/agent-engineering-studio/kg-ui:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
+      NEXT_PUBLIC_ENABLE_STREAMING: "${NEXT_PUBLIC_ENABLE_STREAMING:-true}"
+      NEXT_PUBLIC_ENABLE_GRAPH_VIEW: "${NEXT_PUBLIC_ENABLE_GRAPH_VIEW:-true}"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ── MCP Server — pre-built image from GHCR ───────────────────────────────────
+  mcp:
+    container_name: kg-mcp
+    image: ghcr.io/agent-engineering-studio/kg-mcp:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KG_API_URL: "http://api:8000"
+      MCP_TRANSPORT: "sse"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8080"
+      KG_API_TIMEOUT: "600"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; socket.create_connection(('localhost', 8080), 3).close()\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Agents — pre-built image from GHCR ───────────────────────────────────────
+  agents:
+    container_name: kg-agents
+    image: ghcr.io/agent-engineering-studio/kg-agents:latest
+    ports:
+      - "8002:8001"
+    environment:
+      KG_API_URL: "http://api:8000"
+      KG_MCP_URL: "http://mcp:8080"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      OLLAMA_LLM_MODEL: "${OLLAMA_LLM_MODEL:-llama3}"
+      KG_API_TIMEOUT: "60"
+    depends_on:
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/agents/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ── RedisInsight ──────────────────────────────────────────────────────────────
+  redisinsight:
+    container_name: kg-redisinsight
+    image: redis/redisinsight:latest
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  redis_data:
+  ollama_models:
+  redisinsight_data:
+
+networks:
+  default:
+    name: kg_network

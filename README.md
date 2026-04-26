@@ -36,6 +36,7 @@ Companion repository del libro **_"AI che Ragiona"_**: implementazione productio
 - [Quick start](#quick-start)
 - [Local development (without Docker)](#local-development-without-docker)
 - [Running with Docker](#running-with-docker)
+- [Running with pre-built images (GHCR)](#running-with-pre-built-images-ghcr)
 - [Repository structure](#repository-structure)
 - [API Reference](#api-reference)
 - [Agent API Reference](#agent-api-reference)
@@ -122,12 +123,12 @@ Data flows through three main paths:
 | **Embedding Model** | nomic-embed-text (768 dim) | latest |
 | **REST API** | FastAPI + uvicorn | 0.115+ |
 | **Data Models** | Pydantic v2 + pydantic-settings | 2.7+ |
-| **Multi-Agent** | LangGraph (StateGraph + routing) | 0.2+ |
+| **Multi-Agent** | Microsoft Agent Framework (MAF) | latest |
 | **Frontend** | Next.js + React + Tailwind CSS | 15 / 19 / 4 |
 | **Graph Visualisation** | react-force-graph-2d | 1.26+ |
 | **Logging** | structlog (JSON in prod, console in dev) | 24.1+ |
 | **Testing** | pytest + pytest-asyncio + pytest-mock | 8.2+ |
-| **Linting** | ruff (API/Agents), ESLint + next lint (UI) | 0.4+ |
+| **Linting** | ruff (API/Agents), ESLint (UI) | 0.4+ |
 | **Containerisation** | Docker + Docker Compose | 24+ / v2 |
 
 ---
@@ -332,6 +333,90 @@ docker compose up --build api -d
 ### NVIDIA GPU (optional)
 
 GPU acceleration for Ollama is configured in `docker-compose.yml` under the `deploy` section of the `ollama` service — it is enabled by default and requires the NVIDIA Container Toolkit.
+
+---
+
+## Running with pre-built images (GHCR)
+
+The easiest way to run the full stack locally **without cloning the source code or building any image**. Every CI-green merge to `main` publishes four images to the GitHub Container Registry:
+
+| Image | Description |
+| --- | --- |
+| `ghcr.io/agent-engineering-studio/kg-api:latest` | FastAPI backend |
+| `ghcr.io/agent-engineering-studio/kg-ui:latest` | Next.js frontend |
+| `ghcr.io/agent-engineering-studio/kg-mcp:latest` | MCP server |
+| `ghcr.io/agent-engineering-studio/kg-agents:latest` | Multi-agent API |
+
+### 1. Download the compose file
+
+```bash
+curl -O https://raw.githubusercontent.com/agent-engineering-studio/knowledge-graph/main/docker-compose.ghcr.yml
+curl -O https://raw.githubusercontent.com/agent-engineering-studio/knowledge-graph/main/.env.example
+cp .env.example .env
+# Edit .env: set NEO4J_PASSWORD and, if needed, OLLAMA_BASE_URL
+```
+
+### 2. Choose your Ollama setup
+
+**Option A — Ollama already running on the host** (recommended if you already have models):
+
+```bash
+# Set in .env:
+# OLLAMA_BASE_URL=http://host.docker.internal:11434
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+**Option B — Ollama CPU container** (no GPU):
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile cpu up -d
+
+# Pull models (first time only)
+docker compose -f docker-compose.ghcr.yml exec ollama-cpu \
+  sh -c "ollama pull llama3 && ollama pull nomic-embed-text"
+```
+
+**Option C — Ollama GPU container** (NVIDIA, requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)):
+
+```bash
+docker compose -f docker-compose.ghcr.yml --profile gpu up -d
+
+docker compose -f docker-compose.ghcr.yml exec ollama-gpu \
+  sh -c "ollama pull llama3 && ollama pull nomic-embed-text"
+```
+
+### 3. Access the services
+
+| Service | URL |
+| --- | --- |
+| UI | <http://localhost:3000> |
+| API + Swagger | <http://localhost:8000/docs> |
+| Agent API + Swagger | <http://localhost:8002/docs> |
+| MCP Server (SSE) | <http://localhost:8080> |
+| Neo4j Browser | <http://localhost:7474> |
+| RedisInsight | <http://localhost:5540> |
+
+### 4. Useful commands
+
+```bash
+# Check all containers are up
+docker compose -f docker-compose.ghcr.yml ps
+
+# Follow logs of a specific service
+docker compose -f docker-compose.ghcr.yml logs -f api
+
+# Pull latest images and restart
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+
+# Stop everything
+docker compose -f docker-compose.ghcr.yml down
+
+# Stop and remove all data (WARNING: deletes Neo4j + Redis volumes)
+docker compose -f docker-compose.ghcr.yml down -v
+```
+
+> **Note**: the GHCR packages for this repository are public. No `docker login` is required to pull them.
 
 ---
 
