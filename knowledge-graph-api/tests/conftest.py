@@ -89,10 +89,10 @@ def mock_ollama_client():
     with patch("httpx.AsyncClient") as mock_cls:
         client = AsyncMock()
 
-        # Embedding response (json() is sync in httpx, so use MagicMock)
+        # Embedding response — new Ollama API (/api/embed) returns {"embeddings": [[...]]}
         embed_response = MagicMock()
         embed_response.status_code = 200
-        embed_response.json.return_value = {"embedding": [0.1] * 768}
+        embed_response.json.return_value = {"embeddings": [[0.1] * 768]}
         embed_response.raise_for_status = MagicMock()
 
         # Chat response
@@ -141,6 +141,10 @@ def mock_redis_client():
         client.json.return_value.set = AsyncMock()
         client.json.return_value.delete = AsyncMock()
         client.ping = AsyncMock(return_value=True)
+        # ft() is synchronous in redis-py — must be MagicMock, not AsyncMock.
+        # In Python 3.11+ all attributes of AsyncMock auto-create as AsyncMock,
+        # so we set ft explicitly to avoid ft(...) returning a coroutine.
+        client.ft = MagicMock()
         client.ft.return_value.create_index = AsyncMock()
         client.ft.return_value.search = AsyncMock(
             return_value=MagicMock(total=0, docs=[])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,34 +10,32 @@ from query.rag_pipeline import GraphRAGPipeline, QueryOptions, RAGResponse
 
 
 @pytest.mark.asyncio
-async def test_query_returns_rag_response(mock_ollama_client, mock_redis_client, mock_neo4j_driver) -> None:
-    """RAG query should return a structured RAGResponse."""
+async def test_query_returns_rag_response(mock_redis_client, mock_neo4j_driver) -> None:
+    """RAG pipeline should return a RAGResponse with no-docs fallback when results are empty.
+
+    The pipeline is no-LLM: intent is keyword-based, answer is built directly
+    from retrieved documents and graph nodes. With empty results it returns a
+    static fallback message.
+    """
     pipeline = GraphRAGPipeline()
 
-    # Mock vector search to return empty
+    # Mock all I/O at method level to avoid real service calls
     pipeline.searcher.store.vector_search = AsyncMock(return_value=[])
+    pipeline.searcher.store.keyword_search = AsyncMock(return_value=[])
     pipeline.searcher.embedder.embed = AsyncMock(return_value=[[0.1] * 768])
 
-    # Mock graph traversal
+    # intent="entity_query" ("what is" ∈ _ENTITY_KEYWORDS) + no node_ids
+    # → find_entities is called as fallback
+    pipeline.traverser.find_entities = AsyncMock(return_value=[])
     pipeline.traverser.graph.traverse_neighbors = AsyncMock(return_value=[])
     pipeline.traverser.graph.get_relations_batch = AsyncMock(return_value=[])
-
-    # Mock intent classification response (json() is sync in httpx)
-    intent_resp = MagicMock()
-    intent_resp.status_code = 200
-    intent_resp.json.return_value = {"message": {"content": "general"}}
-    intent_resp.raise_for_status = MagicMock()
-
-    # Mock generation response
-    gen_resp = MagicMock()
-    gen_resp.status_code = 200
-    gen_resp.json.return_value = {"message": {"content": "This is the answer."}}
-    gen_resp.raise_for_status = MagicMock()
-
-    mock_ollama_client.post = AsyncMock(side_effect=[intent_resp, gen_resp])
 
     result = await pipeline.query("What is Redis?", thread_id="test", options=QueryOptions())
 
     assert isinstance(result, RAGResponse)
-    assert result.answer == "This is the answer."
-    assert result.query_intent == "general"
+    # "what is" matches _ENTITY_KEYWORDS → entity_query
+    assert result.query_intent == "entity_query"
+    # No docs and no graph nodes → static English fallback
+    assert result.answer == "The provided documents do not contain information about this topic."
+    assert result.sources == []
+    assert result.nodes_used == []
