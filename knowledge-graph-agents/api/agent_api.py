@@ -10,19 +10,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import time
-import uuid
-from typing import Any, Optional
+import time  # noqa: E402
+import uuid  # noqa: E402
+from typing import Any, Optional  # noqa: E402
 
-import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+import httpx  # noqa: E402
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
-from agents.orchestrator import dispatch
-from memory.kg_memory import AgentRunRecord, get_run, list_runs, save_agent_run
-from memory.redis_store import redis_append_history, redis_clear_history, redis_get_history
-from tools.kg_tools import KG_API_URL, KG_API_TIMEOUT
+from agents.orchestrator import dispatch  # noqa: E402
+from memory.kg_memory import AgentRunRecord, get_run, list_runs, save_agent_run  # noqa: E402
+from memory.redis_store import redis_append_history, redis_clear_history, redis_get_history  # noqa: E402
+from tools.kg_tools import KG_API_URL, KG_API_TIMEOUT  # noqa: E402
 
 app = FastAPI(
     title="Knowledge Graph Agent API",

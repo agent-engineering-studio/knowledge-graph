@@ -108,9 +108,9 @@ async def run_monitor(thread_id: str) -> tuple[str, dict | None]:
 
     try:
         report = str(await agent.run(prompt, session=session))
-    except Exception as exc:
+    except Exception:
         # Fallback: build report without LLM
-        report = f"# Monitor Report\n\n" + "\n".join(f"- {s}" for s in sections)
+        report = "# Monitor Report\n\n" + "\n".join(f"- {s}" for s in sections)
         if alerts:
             report += "\n\n## Alert\n" + "\n".join(f"- ⚠ {a}" for a in alerts)
 
