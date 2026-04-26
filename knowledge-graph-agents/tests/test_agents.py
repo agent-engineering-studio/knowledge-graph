@@ -64,10 +64,20 @@ def test_build_plan_kgc():
 
 # ── Analyst Agent ─────────────────────────────────────────────────────────────
 
+_FAKE_RETRIEVAL = {
+    "has_documents": True,
+    "context_message": "Hevolus is a company specialising in AR enterprise solutions.",
+    "sources": [],
+}
+
+
 @pytest.mark.asyncio
 async def test_analyst_agent_returns_answer():
     mock_agent = _maf_agent_mock("Hevolus è una società specializzata in AR enterprise.")
-    with patch("agents.analyst.create_analyst_agent", return_value=mock_agent):
+    with (
+        patch("agents.analyst.kg_retrieve_context_tool", new=AsyncMock(return_value=_FAKE_RETRIEVAL)),
+        patch("agents.analyst.create_analyst_agent", return_value=mock_agent),
+    ):
         from agents.analyst import run_analyst
         result = await run_analyst("cosa sai su Hevolus?", "default")
     assert "Hevolus" in result
@@ -90,7 +100,10 @@ async def test_analyst_session_thread_id():
 
     mock_agent.run = capture_run
 
-    with patch("agents.analyst.create_analyst_agent", return_value=mock_agent):
+    with (
+        patch("agents.analyst.kg_retrieve_context_tool", new=AsyncMock(return_value=_FAKE_RETRIEVAL)),
+        patch("agents.analyst.create_analyst_agent", return_value=mock_agent),
+    ):
         from agents.analyst import run_analyst
         await run_analyst("test query", "my-namespace")
 
